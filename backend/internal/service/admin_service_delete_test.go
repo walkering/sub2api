@@ -13,15 +13,26 @@ import (
 )
 
 type userRepoStub struct {
-	user       *User
-	getErr     error
-	createErr  error
-	deleteErr  error
-	exists     bool
-	existsErr  error
-	nextID     int64
-	created    []*User
-	deletedIDs []int64
+	user          *User
+	getErr        error
+	getByEmailErr error
+	createErr     error
+	deleteErr     error
+	updateErr     error
+	updateBalanceErr error
+	exists        bool
+	existsErr     error
+	nextID        int64
+	created       []*User
+	updated       []*User
+	deletedIDs    []int64
+	userByEmail   map[string]*User
+	balanceUpdates []balanceUpdateCall
+}
+
+type balanceUpdateCall struct {
+	id     int64
+	amount float64
 }
 
 func (s *userRepoStub) Create(ctx context.Context, user *User) error {
@@ -32,6 +43,13 @@ func (s *userRepoStub) Create(ctx context.Context, user *User) error {
 		user.ID = s.nextID
 	}
 	s.created = append(s.created, user)
+	if s.userByEmail == nil {
+		s.userByEmail = make(map[string]*User)
+	}
+	s.userByEmail[user.Email] = user
+	if s.user == nil {
+		s.user = user
+	}
 	return nil
 }
 
@@ -46,7 +64,18 @@ func (s *userRepoStub) GetByID(ctx context.Context, id int64) (*User, error) {
 }
 
 func (s *userRepoStub) GetByEmail(ctx context.Context, email string) (*User, error) {
-	panic("unexpected GetByEmail call")
+	if s.getByEmailErr != nil {
+		return nil, s.getByEmailErr
+	}
+	if s.userByEmail != nil {
+		if user, ok := s.userByEmail[email]; ok {
+			return user, nil
+		}
+	}
+	if s.user != nil && s.user.Email == email {
+		return s.user, nil
+	}
+	return nil, ErrUserNotFound
 }
 
 func (s *userRepoStub) GetFirstAdmin(ctx context.Context) (*User, error) {
@@ -54,7 +83,16 @@ func (s *userRepoStub) GetFirstAdmin(ctx context.Context) (*User, error) {
 }
 
 func (s *userRepoStub) Update(ctx context.Context, user *User) error {
-	panic("unexpected Update call")
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	s.updated = append(s.updated, user)
+	if s.userByEmail == nil {
+		s.userByEmail = make(map[string]*User)
+	}
+	s.userByEmail[user.Email] = user
+	s.user = user
+	return nil
 }
 
 func (s *userRepoStub) Delete(ctx context.Context, id int64) error {
@@ -71,7 +109,21 @@ func (s *userRepoStub) ListWithFilters(ctx context.Context, params pagination.Pa
 }
 
 func (s *userRepoStub) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	panic("unexpected UpdateBalance call")
+	if s.updateBalanceErr != nil {
+		return s.updateBalanceErr
+	}
+	s.balanceUpdates = append(s.balanceUpdates, balanceUpdateCall{id: id, amount: amount})
+	updated := false
+	if s.user != nil && s.user.ID == id {
+		s.user.Balance += amount
+		updated = true
+	}
+	for _, user := range s.userByEmail {
+		if user != nil && user.ID == id && (!updated || user != s.user) {
+			user.Balance += amount
+		}
+	}
+	return nil
 }
 
 func (s *userRepoStub) DeductBalance(ctx context.Context, id int64, amount float64) error {
@@ -85,6 +137,14 @@ func (s *userRepoStub) UpdateConcurrency(ctx context.Context, id int64, amount i
 func (s *userRepoStub) ExistsByEmail(ctx context.Context, email string) (bool, error) {
 	if s.existsErr != nil {
 		return false, s.existsErr
+	}
+	if s.userByEmail != nil {
+		if _, ok := s.userByEmail[email]; ok {
+			return true, nil
+		}
+	}
+	if s.user != nil && s.user.Email == email {
+		return true, nil
 	}
 	return s.exists, nil
 }
@@ -250,6 +310,10 @@ func (s *proxyRepoStub) ListAccountSummariesByProxyID(ctx context.Context, proxy
 type redeemRepoStub struct {
 	deleteErrByID map[int64]error
 	deletedIDs    []int64
+	codesByCode   map[string]*RedeemCode
+	usedCodeIDs   []int64
+	usedUserIDs   []int64
+	useErr        error
 }
 
 func (s *redeemRepoStub) Create(ctx context.Context, code *RedeemCode) error {
@@ -265,7 +329,12 @@ func (s *redeemRepoStub) GetByID(ctx context.Context, id int64) (*RedeemCode, er
 }
 
 func (s *redeemRepoStub) GetByCode(ctx context.Context, code string) (*RedeemCode, error) {
-	panic("unexpected GetByCode call")
+	if s.codesByCode != nil {
+		if redeemCode, ok := s.codesByCode[code]; ok {
+			return redeemCode, nil
+		}
+	}
+	return nil, ErrRedeemCodeNotFound
 }
 
 func (s *redeemRepoStub) Update(ctx context.Context, code *RedeemCode) error {
@@ -283,7 +352,22 @@ func (s *redeemRepoStub) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *redeemRepoStub) Use(ctx context.Context, id, userID int64) error {
-	panic("unexpected Use call")
+	s.usedCodeIDs = append(s.usedCodeIDs, id)
+	s.usedUserIDs = append(s.usedUserIDs, userID)
+	if s.useErr != nil {
+		return s.useErr
+	}
+	for _, redeemCode := range s.codesByCode {
+		if redeemCode.ID != id {
+			continue
+		}
+		redeemCode.Status = StatusUsed
+		redeemCode.UsedBy = &userID
+		now := time.Now()
+		redeemCode.UsedAt = &now
+		return nil
+	}
+	return ErrRedeemCodeNotFound
 }
 
 func (s *redeemRepoStub) List(ctx context.Context, params pagination.PaginationParams) ([]RedeemCode, *pagination.PaginationResult, error) {

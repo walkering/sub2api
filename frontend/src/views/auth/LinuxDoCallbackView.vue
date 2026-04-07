@@ -106,6 +106,14 @@ function sanitizeRedirectPath(path: string | null | undefined): string {
   return path
 }
 
+function showLinuxDoLoginSuccess(awarded: boolean, amount: number) {
+  if (awarded && amount > 0) {
+    appStore.showSuccess(t('auth.linuxdo.autoCheckinSuccess', { amount }))
+    return
+  }
+  appStore.showSuccess(t('auth.loginSuccess'))
+}
+
 async function handleSubmitInvitation() {
   invitationError.value = ''
   if (!invitationCode.value.trim()) return
@@ -123,7 +131,7 @@ async function handleSubmitInvitation() {
       localStorage.setItem('token_expires_at', String(Date.now() + tokenData.expires_in * 1000))
     }
     await authStore.setToken(tokenData.access_token)
-    appStore.showSuccess(t('auth.loginSuccess'))
+    showLinuxDoLoginSuccess(tokenData.auto_checkin_awarded, tokenData.auto_checkin_bonus_amount)
     await router.replace(redirectTo.value)
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { message?: string } } }
@@ -140,6 +148,8 @@ onMounted(async () => {
   const token = params.get('access_token') || ''
   const refreshToken = params.get('refresh_token') || ''
   const expiresInStr = params.get('expires_in') || ''
+  const autoCheckinAwarded = params.get('auto_checkin_awarded') === 'true'
+  const autoCheckinBonusAmount = parseInt(params.get('auto_checkin_bonus_amount') || '0', 10)
   const redirect = sanitizeRedirectPath(
     params.get('redirect') || (route.query.redirect as string | undefined) || '/dashboard'
   )
@@ -186,7 +196,7 @@ onMounted(async () => {
     }
 
     await authStore.setToken(token)
-    appStore.showSuccess(t('auth.loginSuccess'))
+    showLinuxDoLoginSuccess(autoCheckinAwarded, autoCheckinBonusAmount)
     await router.replace(redirect)
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { detail?: string } } }
@@ -209,4 +219,3 @@ onMounted(async () => {
   transform: translateY(-8px);
 }
 </style>
-

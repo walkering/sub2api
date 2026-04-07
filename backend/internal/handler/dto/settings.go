@@ -46,10 +46,12 @@ type SystemSettings struct {
 	TurnstileSiteKey             string `json:"turnstile_site_key"`
 	TurnstileSecretKeyConfigured bool   `json:"turnstile_secret_key_configured"`
 
-	LinuxDoConnectEnabled                bool   `json:"linuxdo_connect_enabled"`
-	LinuxDoConnectClientID               string `json:"linuxdo_connect_client_id"`
-	LinuxDoConnectClientSecretConfigured bool   `json:"linuxdo_connect_client_secret_configured"`
-	LinuxDoConnectRedirectURL            string `json:"linuxdo_connect_redirect_url"`
+	LinuxDoConnectEnabled                bool                         `json:"linuxdo_connect_enabled"`
+	LinuxDoConnectClientID               string                       `json:"linuxdo_connect_client_id"`
+	LinuxDoConnectClientSecretConfigured bool                         `json:"linuxdo_connect_client_secret_configured"`
+	LinuxDoConnectRedirectURL            string                       `json:"linuxdo_connect_redirect_url"`
+	LinuxDoConnectAutoCheckinBonusEnabled bool                        `json:"linuxdo_connect_auto_checkin_bonus_enabled"`
+	LinuxDoConnectGiftSubscriptions      []DefaultSubscriptionSetting `json:"linuxdo_connect_gift_subscriptions"`
 
 	SiteName                    string           `json:"site_name"`
 	SiteLogo                    string           `json:"site_logo"`

@@ -13,6 +13,7 @@ import (
 )
 
 type settingUpdateRepoStub struct {
+	values  map[string]string
 	updates map[string]string
 }
 
@@ -21,7 +22,12 @@ func (s *settingUpdateRepoStub) Get(ctx context.Context, key string) (*Setting, 
 }
 
 func (s *settingUpdateRepoStub) GetValue(ctx context.Context, key string) (string, error) {
-	panic("unexpected GetValue call")
+	if s.values != nil {
+		if v, ok := s.values[key]; ok {
+			return v, nil
+		}
+	}
+	return "", ErrSettingNotFound
 }
 
 func (s *settingUpdateRepoStub) Set(ctx context.Context, key, value string) error {
@@ -34,8 +40,10 @@ func (s *settingUpdateRepoStub) GetMultiple(ctx context.Context, keys []string) 
 
 func (s *settingUpdateRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
 	s.updates = make(map[string]string, len(settings))
+	s.values = make(map[string]string, len(settings))
 	for k, v := range settings {
 		s.updates[k] = v
+		s.values[k] = v
 	}
 	return nil
 }
@@ -172,6 +180,65 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_RejectsDuplicateGrou
 	require.Nil(t, repo.updates)
 }
 
+func TestSettingService_UpdateSettings_LinuxDoConnectGiftSubscriptions_ValidGroup(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	groupReader := &defaultSubGroupReaderStub{
+		byID: map[int64]*Group{
+			21: {ID: 21, SubscriptionType: SubscriptionTypeSubscription},
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+	svc.SetDefaultSubscriptionGroupReader(groupReader)
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		LinuxDoConnectGiftSubscriptions: []DefaultSubscriptionSetting{
+			{GroupID: 21, ValidityDays: 14},
+		},
+	})
+	require.NoError(t, err)
+
+	raw, ok := repo.updates[SettingKeyLinuxDoConnectGiftSubs]
+	require.True(t, ok)
+
+	var got []DefaultSubscriptionSetting
+	require.NoError(t, json.Unmarshal([]byte(raw), &got))
+	require.Equal(t, []DefaultSubscriptionSetting{
+		{GroupID: 21, ValidityDays: 14},
+	}, got)
+}
+
+func TestSettingService_UpdateSettings_LinuxDoConnectAutoCheckinBonusEnabled(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		LinuxDoConnectAutoCheckinBonusEnabled: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "true", repo.updates[SettingKeyLinuxDoAutoCheckinBonus])
+}
+
+func TestSettingService_UpdateSettings_LinuxDoConnectGiftSubscriptions_RejectsDuplicateGroup(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	groupReader := &defaultSubGroupReaderStub{
+		byID: map[int64]*Group{
+			21: {ID: 21, SubscriptionType: SubscriptionTypeSubscription},
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+	svc.SetDefaultSubscriptionGroupReader(groupReader)
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		LinuxDoConnectGiftSubscriptions: []DefaultSubscriptionSetting{
+			{GroupID: 21, ValidityDays: 14},
+			{GroupID: 21, ValidityDays: 21},
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, "DEFAULT_SUBSCRIPTION_GROUP_DUPLICATE", infraerrors.Reason(err))
+	require.Nil(t, repo.updates)
+}
+
 func TestSettingService_UpdateSettings_RegistrationEmailSuffixWhitelist_Normalized(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
@@ -201,4 +268,33 @@ func TestParseDefaultSubscriptions_NormalizesValues(t *testing.T) {
 		{GroupID: 11, ValidityDays: 60},
 		{GroupID: 12, ValidityDays: MaxValidityDays},
 	}, got)
+}
+
+func TestSettingService_GetLinuxDoConnectGiftSubscriptions_NormalizesValues(t *testing.T) {
+	svc := NewSettingService(&settingUpdateRepoStub{
+		values: map[string]string{
+			SettingKeyLinuxDoConnectGiftSubs: `[{"group_id":21,"validity_days":14},{"group_id":0,"validity_days":3},{"group_id":22,"validity_days":99999}]`,
+		},
+	}, &config.Config{})
+
+	got := svc.GetLinuxDoConnectGiftSubscriptions(context.Background())
+	require.Equal(t, []DefaultSubscriptionSetting{
+		{GroupID: 21, ValidityDays: 14},
+		{GroupID: 22, ValidityDays: MaxValidityDays},
+	}, got)
+}
+
+func TestSettingService_InitializeDefaultSettings_SetsLinuxDoGiftSubscriptionsEmptyArray(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{
+		Default: config.DefaultConfig{
+			UserBalance:     1.5,
+			UserConcurrency: 2,
+		},
+	})
+
+	err := svc.InitializeDefaultSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "[]", repo.updates[SettingKeyLinuxDoConnectGiftSubs])
+	require.Equal(t, "false", repo.updates[SettingKeyLinuxDoAutoCheckinBonus])
 }

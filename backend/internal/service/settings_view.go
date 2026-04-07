@@ -30,6 +30,8 @@ type SystemSettings struct {
 	LinuxDoConnectClientSecret           string
 	LinuxDoConnectClientSecretConfigured bool
 	LinuxDoConnectRedirectURL            string
+	LinuxDoConnectAutoCheckinBonusEnabled bool
+	LinuxDoConnectGiftSubscriptions      []DefaultSubscriptionSetting
 
 	SiteName                    string
 	SiteLogo                    string

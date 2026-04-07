@@ -212,7 +212,7 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 	}
 
 	// 传入空邀请码；如果需要邀请码，服务层返回 ErrOAuthInvitationRequired
-	tokenPair, _, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, "")
+	tokenPair, _, autoCheckinResult, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, "")
 	if err != nil {
 		if errors.Is(err, service.ErrOAuthInvitationRequired) {
 			pendingToken, tokenErr := h.authService.CreatePendingOAuthToken(email, username)
@@ -237,6 +237,8 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 	fragment.Set("refresh_token", tokenPair.RefreshToken)
 	fragment.Set("expires_in", fmt.Sprintf("%d", tokenPair.ExpiresIn))
 	fragment.Set("token_type", "Bearer")
+	fragment.Set("auto_checkin_awarded", strconv.FormatBool(autoCheckinResult.Awarded))
+	fragment.Set("auto_checkin_bonus_amount", strconv.Itoa(autoCheckinResult.BonusAmount))
 	fragment.Set("redirect", redirectTo)
 	redirectWithFragment(c, frontendCallback, fragment)
 }
@@ -262,17 +264,19 @@ func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	tokenPair, _, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, req.InvitationCode)
+	tokenPair, _, autoCheckinResult, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, req.InvitationCode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"access_token":  tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
-		"token_type":    "Bearer",
+		"access_token":              tokenPair.AccessToken,
+		"refresh_token":             tokenPair.RefreshToken,
+		"expires_in":                tokenPair.ExpiresIn,
+		"token_type":                "Bearer",
+		"auto_checkin_awarded":      autoCheckinResult.Awarded,
+		"auto_checkin_bonus_amount": autoCheckinResult.BonusAmount,
 	})
 }
 

@@ -337,6 +337,19 @@ export async function resetPassword(request: ResetPasswordRequest): Promise<Rese
 
 /**
  * Complete LinuxDo OAuth registration by supplying an invitation code
+ * response payload from LinuxDo OAuth completion
+ */
+export interface LinuxDoOAuthCompletionResponse {
+  access_token: string
+  refresh_token: string
+  expires_in: number
+  token_type: string
+  auto_checkin_awarded: boolean
+  auto_checkin_bonus_amount: number
+}
+
+/**
+ * Complete LinuxDo OAuth registration by supplying an invitation code
  * @param pendingOAuthToken - Short-lived JWT from the OAuth callback
  * @param invitationCode - Invitation code entered by the user
  * @returns Token pair on success
@@ -344,16 +357,14 @@ export async function resetPassword(request: ResetPasswordRequest): Promise<Rese
 export async function completeLinuxDoOAuthRegistration(
   pendingOAuthToken: string,
   invitationCode: string
-): Promise<{ access_token: string; refresh_token: string; expires_in: number; token_type: string }> {
-  const { data } = await apiClient.post<{
-    access_token: string
-    refresh_token: string
-    expires_in: number
-    token_type: string
-  }>('/auth/oauth/linuxdo/complete-registration', {
+): Promise<LinuxDoOAuthCompletionResponse> {
+  const { data } = await apiClient.post<LinuxDoOAuthCompletionResponse>(
+    '/auth/oauth/linuxdo/complete-registration',
+    {
     pending_oauth_token: pendingOAuthToken,
     invitation_code: invitationCode
-  })
+    }
+  )
   return data
 }
 

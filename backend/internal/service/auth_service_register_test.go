@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -62,6 +63,30 @@ type defaultSubscriptionAssignerStub struct {
 	err   error
 }
 
+type refreshTokenCacheStub struct{}
+
+type linuxDoAutoCheckinRewardRepoStub struct {
+	records map[string]CreateLinuxDoAutoCheckinRewardInput
+	calls   []CreateLinuxDoAutoCheckinRewardInput
+	err     error
+}
+
+func (s *linuxDoAutoCheckinRewardRepoStub) Create(_ context.Context, input CreateLinuxDoAutoCheckinRewardInput) error {
+	s.calls = append(s.calls, input)
+	if s.err != nil {
+		return s.err
+	}
+	if s.records == nil {
+		s.records = make(map[string]CreateLinuxDoAutoCheckinRewardInput)
+	}
+	key := fmt.Sprintf("%d|%s|%s", input.UserID, input.RewardDate.Format(time.DateOnly), input.Source)
+	if _, exists := s.records[key]; exists {
+		return ErrLinuxDoAutoCheckinRewardAlreadyGranted
+	}
+	s.records[key] = input
+	return nil
+}
+
 func (s *defaultSubscriptionAssignerStub) AssignOrExtendSubscription(_ context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error) {
 	if input != nil {
 		s.calls = append(s.calls, *input)
@@ -107,11 +132,52 @@ func (s *emailCacheStub) SetPasswordResetEmailCooldown(ctx context.Context, emai
 	return nil
 }
 
+func (s *refreshTokenCacheStub) StoreRefreshToken(ctx context.Context, tokenHash string, data *RefreshTokenData, ttl time.Duration) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) GetRefreshToken(ctx context.Context, tokenHash string) (*RefreshTokenData, error) {
+	return nil, ErrRefreshTokenNotFound
+}
+
+func (s *refreshTokenCacheStub) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) DeleteUserRefreshTokens(ctx context.Context, userID int64) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) DeleteTokenFamily(ctx context.Context, familyID string) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) AddToUserTokenSet(ctx context.Context, userID int64, tokenHash string, ttl time.Duration) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) AddToFamilyTokenSet(ctx context.Context, familyID string, tokenHash string, ttl time.Duration) error {
+	return nil
+}
+
+func (s *refreshTokenCacheStub) GetUserTokenHashes(ctx context.Context, userID int64) ([]string, error) {
+	return nil, nil
+}
+
+func (s *refreshTokenCacheStub) GetFamilyTokenHashes(ctx context.Context, familyID string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *refreshTokenCacheStub) IsTokenInFamily(ctx context.Context, familyID string, tokenHash string) (bool, error) {
+	return false, nil
+}
+
 func newAuthService(repo *userRepoStub, settings map[string]string, emailCache EmailCache) *AuthService {
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
-			Secret:     "test-secret",
-			ExpireHour: 1,
+			Secret:                 "test-secret",
+			ExpireHour:             1,
+			RefreshTokenExpireDays: 30,
 		},
 		Default: config.DefaultConfig{
 			UserBalance:     3.5,
@@ -463,4 +529,253 @@ func TestAuthService_Register_AssignsDefaultSubscriptions(t *testing.T) {
 	require.Equal(t, 30, assigner.calls[0].ValidityDays)
 	require.Equal(t, int64(12), assigner.calls[1].GroupID)
 	require.Equal(t, 7, assigner.calls[1].ValidityDays)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_AssignsLinuxDoGiftSubscriptionsOnFirstSignup(t *testing.T) {
+	repo := &userRepoStub{nextID: 21}
+	assigner := &defaultSubscriptionAssignerStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:    "true",
+		SettingKeyLinuxDoConnectGiftSubs: `[{"group_id":31,"validity_days":14},{"group_id":32,"validity_days":30}]`,
+		SettingKeyDefaultSubscriptions:   `[]`,
+		SettingKeyInvitationCodeEnabled:  "false",
+	}, nil)
+	service.defaultSubAssigner = assigner
+
+	token, user, _, err := service.LoginOrRegisterOAuth(context.Background(), "linuxdo-new@test.com", "linuxdo-user")
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.NotNil(t, user)
+	require.Equal(t, int64(21), user.ID)
+	require.Len(t, assigner.calls, 2)
+	require.Equal(t, int64(31), assigner.calls[0].GroupID)
+	require.Equal(t, 14, assigner.calls[0].ValidityDays)
+	require.Equal(t, "auto assigned by linuxdo connect gift subscriptions setting", assigner.calls[0].Notes)
+	require.Equal(t, int64(32), assigner.calls[1].GroupID)
+	require.Equal(t, 30, assigner.calls[1].ValidityDays)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_DoesNotAssignLinuxDoGiftSubscriptionsWhenEmpty(t *testing.T) {
+	repo := &userRepoStub{nextID: 22}
+	assigner := &defaultSubscriptionAssignerStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:    "true",
+		SettingKeyLinuxDoConnectGiftSubs: `[]`,
+	}, nil)
+	service.defaultSubAssigner = assigner
+
+	token, user, _, err := service.LoginOrRegisterOAuth(context.Background(), "linuxdo-empty@test.com", "linuxdo-empty")
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.NotNil(t, user)
+	require.Empty(t, assigner.calls)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_DoesNotReassignLinuxDoGiftSubscriptionsForExistingUser(t *testing.T) {
+	existingUser := &User{
+		ID:           23,
+		Email:        "linuxdo-existing@test.com",
+		Username:     "existing-user",
+		Role:         RoleUser,
+		Status:       StatusActive,
+		TokenVersion: 1,
+	}
+	repo := &userRepoStub{
+		userByEmail: map[string]*User{
+			existingUser.Email: existingUser,
+		},
+	}
+	assigner := &defaultSubscriptionAssignerStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:    "true",
+		SettingKeyLinuxDoConnectGiftSubs: `[{"group_id":41,"validity_days":15}]`,
+	}, nil)
+	service.defaultSubAssigner = assigner
+
+	token, user, _, err := service.LoginOrRegisterOAuth(context.Background(), existingUser.Email, existingUser.Username)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.Same(t, existingUser, user)
+	require.Empty(t, repo.created)
+	require.Empty(t, assigner.calls)
+}
+
+func TestAuthService_LoginOrRegisterOAuthWithTokenPair_AssignsLinuxDoGiftSubscriptionsForInvitationSignup(t *testing.T) {
+	repo := &userRepoStub{nextID: 24}
+	assigner := &defaultSubscriptionAssignerStub{}
+	redeemRepo := &redeemRepoStub{
+		codesByCode: map[string]*RedeemCode{
+			"invite-123": {
+				ID:     9,
+				Code:   "invite-123",
+				Type:   RedeemTypeInvitation,
+				Status: StatusUnused,
+			},
+		},
+	}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:    "true",
+		SettingKeyInvitationCodeEnabled:  "true",
+		SettingKeyLinuxDoConnectGiftSubs: `[{"group_id":51,"validity_days":45}]`,
+	}, nil)
+	service.defaultSubAssigner = assigner
+	service.refreshTokenCache = &refreshTokenCacheStub{}
+	service.redeemRepo = redeemRepo
+
+	tokenPair, user, _, err := service.LoginOrRegisterOAuthWithTokenPair(
+		context.Background(),
+		"linuxdo-invite@test.com",
+		"invite-user",
+		"invite-123",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, tokenPair)
+	require.NotEmpty(t, tokenPair.AccessToken)
+	require.NotEmpty(t, tokenPair.RefreshToken)
+	require.NotNil(t, user)
+	require.Equal(t, int64(24), user.ID)
+	require.Len(t, assigner.calls, 1)
+	require.Equal(t, int64(51), assigner.calls[0].GroupID)
+	require.Equal(t, 45, assigner.calls[0].ValidityDays)
+	require.Equal(t, []int64{9}, redeemRepo.usedCodeIDs)
+	require.Equal(t, []int64{24}, redeemRepo.usedUserIDs)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_DoesNotAwardLinuxDoAutoCheckinBonusWhenDisabled(t *testing.T) {
+	repo := &userRepoStub{nextID: 25}
+	rewardRepo := &linuxDoAutoCheckinRewardRepoStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:  "true",
+		SettingKeyLinuxDoAutoCheckinBonus: "false",
+	}, nil)
+	service.SetLinuxDoAutoCheckinRewardRepository(rewardRepo)
+	service.SetAutoCheckinRandomIntn(func(int) int { return 4 })
+	service.SetAutoCheckinNow(func() time.Time {
+		return time.Date(2026, 4, 7, 9, 30, 0, 0, time.Local)
+	})
+
+	token, user, autoCheckinResult, err := service.LoginOrRegisterOAuth(context.Background(), "linuxdo-disabled@test.com", "linuxdo-disabled")
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.NotNil(t, user)
+	require.False(t, autoCheckinResult.Awarded)
+	require.Zero(t, autoCheckinResult.BonusAmount)
+	require.Empty(t, rewardRepo.calls)
+	require.Empty(t, repo.balanceUpdates)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_AwardsLinuxDoAutoCheckinBonusOnFirstLogin(t *testing.T) {
+	repo := &userRepoStub{nextID: 26}
+	rewardRepo := &linuxDoAutoCheckinRewardRepoStub{}
+	fixedTime := time.Date(2026, 4, 7, 9, 30, 0, 0, time.Local)
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:  "true",
+		SettingKeyLinuxDoAutoCheckinBonus: "true",
+	}, nil)
+	service.SetLinuxDoAutoCheckinRewardRepository(rewardRepo)
+	service.SetAutoCheckinRandomIntn(func(int) int { return 2 })
+	service.SetAutoCheckinNow(func() time.Time { return fixedTime })
+
+	token, user, autoCheckinResult, err := service.LoginOrRegisterOAuth(context.Background(), "linuxdo-bonus@test.com", "linuxdo-bonus")
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.NotNil(t, user)
+	require.True(t, autoCheckinResult.Awarded)
+	require.Equal(t, 3, autoCheckinResult.BonusAmount)
+	require.Len(t, rewardRepo.calls, 1)
+	require.Equal(t, CreateLinuxDoAutoCheckinRewardInput{
+		UserID:      26,
+		RewardDate:  time.Date(2026, 4, 7, 0, 0, 0, 0, fixedTime.Location()),
+		Source:      LinuxDoAutoCheckinRewardSourceOAuthLogin,
+		BonusAmount: 3,
+	}, rewardRepo.calls[0])
+	require.Equal(t, []balanceUpdateCall{{id: 26, amount: 3}}, repo.balanceUpdates)
+	require.Equal(t, 6.5, user.Balance)
+}
+
+func TestAuthService_LoginOrRegisterOAuth_DoesNotAwardLinuxDoAutoCheckinBonusTwiceInSameDay(t *testing.T) {
+	existingUser := &User{
+		ID:           27,
+		Email:        "linuxdo-repeat@test.com",
+		Username:     "linuxdo-repeat",
+		Role:         RoleUser,
+		Status:       StatusActive,
+		Balance:      2,
+		TokenVersion: 1,
+	}
+	repo := &userRepoStub{
+		user: existingUser,
+		userByEmail: map[string]*User{
+			existingUser.Email: existingUser,
+		},
+	}
+	rewardRepo := &linuxDoAutoCheckinRewardRepoStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:  "true",
+		SettingKeyLinuxDoAutoCheckinBonus: "true",
+	}, nil)
+	service.SetLinuxDoAutoCheckinRewardRepository(rewardRepo)
+	service.SetAutoCheckinRandomIntn(func(int) int { return 1 })
+	service.SetAutoCheckinNow(func() time.Time {
+		return time.Date(2026, 4, 7, 10, 0, 0, 0, time.Local)
+	})
+
+	_, firstUser, firstResult, err := service.LoginOrRegisterOAuth(context.Background(), existingUser.Email, existingUser.Username)
+	require.NoError(t, err)
+	require.True(t, firstResult.Awarded)
+	require.Equal(t, 2, firstResult.BonusAmount)
+	require.Same(t, existingUser, firstUser)
+
+	_, secondUser, secondResult, err := service.LoginOrRegisterOAuth(context.Background(), existingUser.Email, existingUser.Username)
+	require.NoError(t, err)
+	require.False(t, secondResult.Awarded)
+	require.Zero(t, secondResult.BonusAmount)
+	require.Same(t, existingUser, secondUser)
+	require.Len(t, rewardRepo.calls, 2)
+	require.Equal(t, []balanceUpdateCall{{id: 27, amount: 2}}, repo.balanceUpdates)
+	require.Equal(t, 4.0, existingUser.Balance)
+}
+
+func TestAuthService_LoginOrRegisterOAuthWithTokenPair_AwardsLinuxDoAutoCheckinBonusForInvitationSignup(t *testing.T) {
+	repo := &userRepoStub{nextID: 28}
+	rewardRepo := &linuxDoAutoCheckinRewardRepoStub{}
+	redeemRepo := &redeemRepoStub{
+		codesByCode: map[string]*RedeemCode{
+			"invite-auto-checkin": {
+				ID:     10,
+				Code:   "invite-auto-checkin",
+				Type:   RedeemTypeInvitation,
+				Status: StatusUnused,
+			},
+		},
+	}
+	fixedTime := time.Date(2026, 4, 7, 11, 0, 0, 0, time.Local)
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:  "true",
+		SettingKeyInvitationCodeEnabled: "true",
+		SettingKeyLinuxDoAutoCheckinBonus: "true",
+	}, nil)
+	service.refreshTokenCache = &refreshTokenCacheStub{}
+	service.redeemRepo = redeemRepo
+	service.SetLinuxDoAutoCheckinRewardRepository(rewardRepo)
+	service.SetAutoCheckinRandomIntn(func(int) int { return 0 })
+	service.SetAutoCheckinNow(func() time.Time { return fixedTime })
+
+	tokenPair, user, autoCheckinResult, err := service.LoginOrRegisterOAuthWithTokenPair(
+		context.Background(),
+		"linuxdo-bonus-invite@test.com",
+		"invite-auto-checkin",
+		"invite-auto-checkin",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, tokenPair)
+	require.NotEmpty(t, tokenPair.AccessToken)
+	require.NotEmpty(t, tokenPair.RefreshToken)
+	require.NotNil(t, user)
+	require.True(t, autoCheckinResult.Awarded)
+	require.Equal(t, 1, autoCheckinResult.BonusAmount)
+	require.Equal(t, []int64{10}, redeemRepo.usedCodeIDs)
+	require.Equal(t, []int64{28}, redeemRepo.usedUserIDs)
+	require.Equal(t, []balanceUpdateCall{{id: 28, amount: 1}}, repo.balanceUpdates)
+	require.Len(t, rewardRepo.calls, 1)
 }

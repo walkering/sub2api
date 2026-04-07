@@ -471,6 +471,7 @@ func TestAPIContracts(t *testing.T) {
 
 					service.SettingKeyDefaultConcurrency: "5",
 					service.SettingKeyDefaultBalance:     "1.25",
+					service.SettingKeyLinuxDoAutoCheckinBonus: "false",
 
 					service.SettingKeyOpsMonitoringEnabled:         "false",
 					service.SettingKeyOpsRealtimeMonitoringEnabled: "true",
@@ -520,6 +521,8 @@ func TestAPIContracts(t *testing.T) {
 					"default_concurrency": 5,
 					"default_balance": 1.25,
 					"default_subscriptions": [],
+					"linuxdo_connect_gift_subscriptions": [],
+					"linuxdo_connect_auto_checkin_bonus_enabled": false,
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",

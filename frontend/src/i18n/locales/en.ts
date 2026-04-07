@@ -440,7 +440,8 @@ export default {
       invalidPendingToken: 'The registration token has expired. Please sign in with Linux.do again.',
       completeRegistration: 'Complete Registration',
       completing: 'Completing registration…',
-      completeRegistrationFailed: 'Registration failed. Please check your invitation code and try again.'
+      completeRegistrationFailed: 'Registration failed. Please check your invitation code and try again.',
+      autoCheckinSuccess: 'Check-in successful. {amount} bonus balance awarded.'
     },
     oauth: {
       code: 'Code',
@@ -4225,7 +4226,18 @@ export default {
         redirectUrlHint:
           'Must match the redirect URL configured in Connect.Linux.Do (must be an absolute http(s) URL)',
         quickSetCopy: 'Generate & Copy (current site)',
-        redirectUrlSetAndCopied: 'Redirect URL generated and copied to clipboard'
+        redirectUrlSetAndCopied: 'Redirect URL generated and copied to clipboard',
+        autoCheckinBonusEnabled: 'Auto check-in bonus on login',
+        autoCheckinBonusEnabledHint:
+          'When enabled, a successful LinuxDo Connect login triggers auto check-in and grants a random bonus between 1 and 5 once per day.',
+        giftSubscriptions: 'Gift Subscriptions',
+        giftSubscriptionsHint:
+          'Granted only when a user creates a local account through LinuxDo Connect for the first time. Leave empty to disable gifting.',
+        addGiftSubscription: 'Add Gift Subscription',
+        giftSubscriptionsEmpty:
+          'No LinuxDo Connect gift subscriptions configured. First-time LinuxDo sign-ins will not receive extra subscriptions.',
+        giftSubscriptionsDuplicate:
+          'Duplicate LinuxDo Connect gift subscription group: {groupId}. Each group can only appear once.'
       },
       defaults: {
         title: 'Default User Settings',

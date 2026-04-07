@@ -439,7 +439,8 @@ export default {
       invalidPendingToken: '注册凭证已失效，请重新使用 Linux.do 登录。',
       completeRegistration: '完成注册',
       completing: '正在完成注册...',
-      completeRegistrationFailed: '注册失败，请检查邀请码后重试。'
+      completeRegistrationFailed: '注册失败，请检查邀请码后重试。',
+      autoCheckinSuccess: '签到成功，赠送 {amount} 余额'
     },
     oauth: {
       code: '授权码',
@@ -4391,7 +4392,14 @@ export default {
         redirectUrlPlaceholder: 'https://your-domain.com/api/v1/auth/oauth/linuxdo/callback',
         redirectUrlHint: '需与 Connect.Linux.Do 中配置的回调地址一致（必须是 http(s) 完整 URL）',
         quickSetCopy: '使用当前站点生成并复制',
-        redirectUrlSetAndCopied: '已使用当前站点生成回调地址并复制到剪贴板'
+        redirectUrlSetAndCopied: '已使用当前站点生成回调地址并复制到剪贴板',
+        autoCheckinBonusEnabled: '登录成功自动签到赠送余额',
+        autoCheckinBonusEnabledHint: '开启后，用户通过 LinuxDo Connect 登录成功时会自动签到；若当天尚未领取，则随机赠送 1-5 余额。',
+        giftSubscriptions: '赠送订阅',
+        giftSubscriptionsHint: '仅在用户首次通过 LinuxDo Connect 创建本地账号后发放，可留空表示不赠送',
+        addGiftSubscription: '添加赠送订阅',
+        giftSubscriptionsEmpty: '未配置 LinuxDo Connect 赠送订阅。首次通过 LinuxDo 登录的用户不会自动获得额外订阅。',
+        giftSubscriptionsDuplicate: 'LinuxDo Connect 赠送订阅存在重复分组：{groupId}。每个分组只能出现一次。'
       },
       defaults: {
         title: '用户默认设置',

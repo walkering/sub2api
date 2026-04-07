@@ -71,6 +71,13 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 			ValidityDays: sub.ValidityDays,
 		})
 	}
+	linuxDoGiftSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(settings.LinuxDoConnectGiftSubscriptions))
+	for _, sub := range settings.LinuxDoConnectGiftSubscriptions {
+		linuxDoGiftSubscriptions = append(linuxDoGiftSubscriptions, dto.DefaultSubscriptionSetting{
+			GroupID:      sub.GroupID,
+			ValidityDays: sub.ValidityDays,
+		})
+	}
 
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  settings.RegistrationEnabled,
@@ -96,6 +103,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		LinuxDoConnectClientID:               settings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured: settings.LinuxDoConnectClientSecretConfigured,
 		LinuxDoConnectRedirectURL:            settings.LinuxDoConnectRedirectURL,
+		LinuxDoConnectAutoCheckinBonusEnabled: settings.LinuxDoConnectAutoCheckinBonusEnabled,
+		LinuxDoConnectGiftSubscriptions:      linuxDoGiftSubscriptions,
 		SiteName:                             settings.SiteName,
 		SiteLogo:                             settings.SiteLogo,
 		SiteSubtitle:                         settings.SiteSubtitle,
@@ -158,10 +167,12 @@ type UpdateSettingsRequest struct {
 	TurnstileSecretKey string `json:"turnstile_secret_key"`
 
 	// LinuxDo Connect OAuth 登录
-	LinuxDoConnectEnabled      bool   `json:"linuxdo_connect_enabled"`
-	LinuxDoConnectClientID     string `json:"linuxdo_connect_client_id"`
-	LinuxDoConnectClientSecret string `json:"linuxdo_connect_client_secret"`
-	LinuxDoConnectRedirectURL  string `json:"linuxdo_connect_redirect_url"`
+	LinuxDoConnectEnabled           bool                             `json:"linuxdo_connect_enabled"`
+	LinuxDoConnectClientID          string                           `json:"linuxdo_connect_client_id"`
+	LinuxDoConnectClientSecret      string                           `json:"linuxdo_connect_client_secret"`
+	LinuxDoConnectRedirectURL       string                           `json:"linuxdo_connect_redirect_url"`
+	LinuxDoConnectAutoCheckinBonusEnabled bool                       `json:"linuxdo_connect_auto_checkin_bonus_enabled"`
+	LinuxDoConnectGiftSubscriptions []dto.DefaultSubscriptionSetting `json:"linuxdo_connect_gift_subscriptions"`
 
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
@@ -243,7 +254,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.SMTPPort <= 0 {
 		req.SMTPPort = 587
 	}
-	req.DefaultSubscriptions = normalizeDefaultSubscriptions(req.DefaultSubscriptions)
+	req.DefaultSubscriptions = normalizeSubscriptionSettings(req.DefaultSubscriptions)
+	req.LinuxDoConnectGiftSubscriptions = normalizeSubscriptionSettings(req.LinuxDoConnectGiftSubscriptions)
 
 	// SMTP 配置保护：如果请求中 smtp_host 为空但数据库中已有配置，则保留已有 SMTP 配置
 	// 防止前端加载设置失败时空表单覆盖已保存的 SMTP 配置
@@ -504,6 +516,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			ValidityDays: sub.ValidityDays,
 		})
 	}
+	linuxDoGiftSubscriptions := make([]service.DefaultSubscriptionSetting, 0, len(req.LinuxDoConnectGiftSubscriptions))
+	for _, sub := range req.LinuxDoConnectGiftSubscriptions {
+		linuxDoGiftSubscriptions = append(linuxDoGiftSubscriptions, service.DefaultSubscriptionSetting{
+			GroupID:      sub.GroupID,
+			ValidityDays: sub.ValidityDays,
+		})
+	}
 
 	// 验证最低版本号格式（空字符串=禁用，或合法 semver）
 	if req.MinClaudeCodeVersion != "" {
@@ -552,6 +571,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LinuxDoConnectClientID:           req.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecret:       req.LinuxDoConnectClientSecret,
 		LinuxDoConnectRedirectURL:        req.LinuxDoConnectRedirectURL,
+		LinuxDoConnectAutoCheckinBonusEnabled: req.LinuxDoConnectAutoCheckinBonusEnabled,
+		LinuxDoConnectGiftSubscriptions:  linuxDoGiftSubscriptions,
 		SiteName:                         req.SiteName,
 		SiteLogo:                         req.SiteLogo,
 		SiteSubtitle:                     req.SiteSubtitle,
@@ -636,6 +657,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			ValidityDays: sub.ValidityDays,
 		})
 	}
+	updatedLinuxDoGiftSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.LinuxDoConnectGiftSubscriptions))
+	for _, sub := range updatedSettings.LinuxDoConnectGiftSubscriptions {
+		updatedLinuxDoGiftSubscriptions = append(updatedLinuxDoGiftSubscriptions, dto.DefaultSubscriptionSetting{
+			GroupID:      sub.GroupID,
+			ValidityDays: sub.ValidityDays,
+		})
+	}
 
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  updatedSettings.RegistrationEnabled,
@@ -661,6 +689,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LinuxDoConnectClientID:               updatedSettings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured: updatedSettings.LinuxDoConnectClientSecretConfigured,
 		LinuxDoConnectRedirectURL:            updatedSettings.LinuxDoConnectRedirectURL,
+		LinuxDoConnectAutoCheckinBonusEnabled: updatedSettings.LinuxDoConnectAutoCheckinBonusEnabled,
+		LinuxDoConnectGiftSubscriptions:      updatedLinuxDoGiftSubscriptions,
 		SiteName:                             updatedSettings.SiteName,
 		SiteLogo:                             updatedSettings.SiteLogo,
 		SiteSubtitle:                         updatedSettings.SiteSubtitle,
@@ -778,6 +808,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.LinuxDoConnectRedirectURL != after.LinuxDoConnectRedirectURL {
 		changed = append(changed, "linuxdo_connect_redirect_url")
 	}
+	if before.LinuxDoConnectAutoCheckinBonusEnabled != after.LinuxDoConnectAutoCheckinBonusEnabled {
+		changed = append(changed, "linuxdo_connect_auto_checkin_bonus_enabled")
+	}
+	if !equalSubscriptionSettings(before.LinuxDoConnectGiftSubscriptions, after.LinuxDoConnectGiftSubscriptions) {
+		changed = append(changed, "linuxdo_connect_gift_subscriptions")
+	}
 	if before.SiteName != after.SiteName {
 		changed = append(changed, "site_name")
 	}
@@ -808,7 +844,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.DefaultBalance != after.DefaultBalance {
 		changed = append(changed, "default_balance")
 	}
-	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
+	if !equalSubscriptionSettings(before.DefaultSubscriptions, after.DefaultSubscriptions) {
 		changed = append(changed, "default_subscriptions")
 	}
 	if before.EnableModelFallback != after.EnableModelFallback {
@@ -874,7 +910,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	return changed
 }
 
-func normalizeDefaultSubscriptions(input []dto.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
+func normalizeSubscriptionSettings(input []dto.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
 	if len(input) == 0 {
 		return nil
 	}
@@ -891,6 +927,10 @@ func normalizeDefaultSubscriptions(input []dto.DefaultSubscriptionSetting) []dto
 	return normalized
 }
 
+func normalizeDefaultSubscriptions(input []dto.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
+	return normalizeSubscriptionSettings(input)
+}
+
 func equalStringSlice(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -903,7 +943,7 @@ func equalStringSlice(a, b []string) bool {
 	return true
 }
 
-func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
+func equalSubscriptionSettings(a, b []service.DefaultSubscriptionSetting) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -913,6 +953,10 @@ func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
 		}
 	}
 	return true
+}
+
+func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
+	return equalSubscriptionSettings(a, b)
 }
 
 // TestSMTPRequest 测试SMTP连接请求

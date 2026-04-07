@@ -29,6 +29,7 @@ export interface SystemSettings {
   default_balance: number
   default_concurrency: number
   default_subscriptions: DefaultSubscriptionSetting[]
+  linuxdo_connect_gift_subscriptions: DefaultSubscriptionSetting[]
   // OEM settings
   site_name: string
   site_logo: string
@@ -61,6 +62,7 @@ export interface SystemSettings {
   linuxdo_connect_client_id: string
   linuxdo_connect_client_secret_configured: boolean
   linuxdo_connect_redirect_url: string
+  linuxdo_connect_auto_checkin_bonus_enabled: boolean
 
   // Model fallback configuration
   enable_model_fallback: boolean
@@ -103,6 +105,7 @@ export interface UpdateSettingsRequest {
   default_balance?: number
   default_concurrency?: number
   default_subscriptions?: DefaultSubscriptionSetting[]
+  linuxdo_connect_gift_subscriptions?: DefaultSubscriptionSetting[]
   site_name?: string
   site_logo?: string
   site_subtitle?: string
@@ -130,6 +133,7 @@ export interface UpdateSettingsRequest {
   linuxdo_connect_client_id?: string
   linuxdo_connect_client_secret?: string
   linuxdo_connect_redirect_url?: string
+  linuxdo_connect_auto_checkin_bonus_enabled?: boolean
   enable_model_fallback?: boolean
   fallback_model_anthropic?: string
   fallback_model_openai?: string

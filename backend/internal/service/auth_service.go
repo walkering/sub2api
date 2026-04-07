@@ -2,11 +2,12 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	mathrand "math/rand/v2"
 	"net/mail"
 	"strconv"
 	"strings"
@@ -71,6 +72,9 @@ type AuthService struct {
 	emailQueueService  *EmailQueueService
 	promoService       *PromoService
 	defaultSubAssigner DefaultSubscriptionAssigner
+	autoCheckinRepo    LinuxDoAutoCheckinRewardRepository
+	autoCheckinRandInt func(int) int
+	autoCheckinNow     func() time.Time
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -103,6 +107,24 @@ func NewAuthService(
 		emailQueueService:  emailQueueService,
 		promoService:       promoService,
 		defaultSubAssigner: defaultSubAssigner,
+		autoCheckinRandInt: mathrand.IntN,
+		autoCheckinNow:     time.Now,
+	}
+}
+
+func (s *AuthService) SetLinuxDoAutoCheckinRewardRepository(repo LinuxDoAutoCheckinRewardRepository) {
+	s.autoCheckinRepo = repo
+}
+
+func (s *AuthService) SetAutoCheckinRandomIntn(randInt func(int) int) {
+	if randInt != nil {
+		s.autoCheckinRandInt = randInt
+	}
+}
+
+func (s *AuthService) SetAutoCheckinNow(nowFn func() time.Time) {
+	if nowFn != nil {
+		s.autoCheckinNow = nowFn
 	}
 }
 
@@ -437,13 +459,13 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 //
 // 注意：该函数用于 LinuxDo OAuth 登录场景（不同于上游账号的 OAuth，例如 Claude/OpenAI/Gemini）。
 // 为了满足现有数据库约束（需要密码哈希），新用户会生成随机密码并进行哈希保存。
-func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, error) {
+func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, AutoCheckinResult, error) {
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
-		return "", nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return "", nil, AutoCheckinResult{}, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return "", nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return "", nil, AutoCheckinResult{}, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 
 	username = strings.TrimSpace(username)
@@ -456,17 +478,17 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 		if errors.Is(err, ErrUserNotFound) {
 			// OAuth 首次登录视为注册（fail-close：settingService 未配置时不允许注册）
 			if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-				return "", nil, ErrRegDisabled
+				return "", nil, AutoCheckinResult{}, ErrRegDisabled
 			}
 
 			randomPassword, err := randomHexString(32)
 			if err != nil {
 				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
-				return "", nil, ErrServiceUnavailable
+				return "", nil, AutoCheckinResult{}, ErrServiceUnavailable
 			}
 			hashedPassword, err := s.HashPassword(randomPassword)
 			if err != nil {
-				return "", nil, fmt.Errorf("hash password: %w", err)
+				return "", nil, AutoCheckinResult{}, fmt.Errorf("hash password: %w", err)
 			}
 
 			// 新用户默认值。
@@ -493,24 +515,25 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 					user, err = s.userRepo.GetByEmail(ctx, email)
 					if err != nil {
 						logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-						return "", nil, ErrServiceUnavailable
+						return "", nil, AutoCheckinResult{}, ErrServiceUnavailable
 					}
 				} else {
 					logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-					return "", nil, ErrServiceUnavailable
+					return "", nil, AutoCheckinResult{}, ErrServiceUnavailable
 				}
 			} else {
 				user = newUser
 				s.assignDefaultSubscriptions(ctx, user.ID)
+				s.assignLinuxDoConnectGiftSubscriptions(ctx, user.ID)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
-			return "", nil, ErrServiceUnavailable
+			return "", nil, AutoCheckinResult{}, ErrServiceUnavailable
 		}
 	}
 
 	if !user.IsActive() {
-		return "", nil, ErrUserNotActive
+		return "", nil, AutoCheckinResult{}, ErrUserNotActive
 	}
 
 	// 尽力补全：当用户名为空时，使用第三方返回的用户名回填。
@@ -521,28 +544,33 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 		}
 	}
 
+	autoCheckinResult, err := s.tryLinuxDoConnectAutoCheckinBonus(ctx, user.ID)
+	if err != nil {
+		return "", nil, AutoCheckinResult{}, err
+	}
+
 	token, err := s.GenerateToken(user)
 	if err != nil {
-		return "", nil, fmt.Errorf("generate token: %w", err)
+		return "", nil, AutoCheckinResult{}, fmt.Errorf("generate token: %w", err)
 	}
-	return token, user, nil
+	return token, user, autoCheckinResult, nil
 }
 
 // LoginOrRegisterOAuthWithTokenPair 用于第三方 OAuth/SSO 登录，返回完整的 TokenPair。
 // 与 LoginOrRegisterOAuth 功能相同，但返回 TokenPair 而非单个 token。
 // invitationCode 仅在邀请码注册模式下新用户注册时使用；已有账号登录时忽略。
-func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, email, username, invitationCode string) (*TokenPair, *User, error) {
+func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, email, username, invitationCode string) (*TokenPair, *User, AutoCheckinResult, error) {
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
-		return nil, nil, errors.New("refresh token cache not configured")
+		return nil, nil, AutoCheckinResult{}, errors.New("refresh token cache not configured")
 	}
 
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return nil, nil, AutoCheckinResult{}, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return nil, nil, AutoCheckinResult{}, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 
 	username = strings.TrimSpace(username)
@@ -555,21 +583,21 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		if errors.Is(err, ErrUserNotFound) {
 			// OAuth 首次登录视为注册
 			if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-				return nil, nil, ErrRegDisabled
+				return nil, nil, AutoCheckinResult{}, ErrRegDisabled
 			}
 
 			// 检查是否需要邀请码
 			var invitationRedeemCode *RedeemCode
 			if s.settingService != nil && s.settingService.IsInvitationCodeEnabled(ctx) {
 				if invitationCode == "" {
-					return nil, nil, ErrOAuthInvitationRequired
+					return nil, nil, AutoCheckinResult{}, ErrOAuthInvitationRequired
 				}
 				redeemCode, err := s.redeemRepo.GetByCode(ctx, invitationCode)
 				if err != nil {
-					return nil, nil, ErrInvitationCodeInvalid
+					return nil, nil, AutoCheckinResult{}, ErrInvitationCodeInvalid
 				}
 				if redeemCode.Type != RedeemTypeInvitation || redeemCode.Status != StatusUnused {
-					return nil, nil, ErrInvitationCodeInvalid
+					return nil, nil, AutoCheckinResult{}, ErrInvitationCodeInvalid
 				}
 				invitationRedeemCode = redeemCode
 			}
@@ -577,11 +605,11 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			randomPassword, err := randomHexString(32)
 			if err != nil {
 				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
-				return nil, nil, ErrServiceUnavailable
+				return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 			}
 			hashedPassword, err := s.HashPassword(randomPassword)
 			if err != nil {
-				return nil, nil, fmt.Errorf("hash password: %w", err)
+				return nil, nil, AutoCheckinResult{}, fmt.Errorf("hash password: %w", err)
 			}
 
 			defaultBalance := s.cfg.Default.UserBalance
@@ -605,7 +633,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				tx, err := s.entClient.Tx(ctx)
 				if err != nil {
 					logger.LegacyPrintf("service.auth", "[Auth] Failed to begin transaction for oauth registration: %v", err)
-					return nil, nil, ErrServiceUnavailable
+					return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 				}
 				defer func() { _ = tx.Rollback() }()
 				txCtx := dbent.NewTxContext(ctx, tx)
@@ -615,22 +643,23 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
 							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
+							return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 						}
 					} else {
 						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 					}
 				} else {
 					if err := s.redeemRepo.Use(txCtx, invitationRedeemCode.ID, newUser.ID); err != nil {
-						return nil, nil, ErrInvitationCodeInvalid
+						return nil, nil, AutoCheckinResult{}, ErrInvitationCodeInvalid
 					}
 					if err := tx.Commit(); err != nil {
 						logger.LegacyPrintf("service.auth", "[Auth] Failed to commit oauth registration transaction: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 					}
 					user = newUser
 					s.assignDefaultSubscriptions(ctx, user.ID)
+					s.assignLinuxDoConnectGiftSubscriptions(ctx, user.ID)
 				}
 			} else {
 				if err := s.userRepo.Create(ctx, newUser); err != nil {
@@ -638,30 +667,31 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
 							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
+							return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 						}
 					} else {
 						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 					}
 				} else {
 					user = newUser
 					s.assignDefaultSubscriptions(ctx, user.ID)
+					s.assignLinuxDoConnectGiftSubscriptions(ctx, user.ID)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
-							return nil, nil, ErrInvitationCodeInvalid
+							return nil, nil, AutoCheckinResult{}, ErrInvitationCodeInvalid
 						}
 					}
 				}
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
-			return nil, nil, ErrServiceUnavailable
+			return nil, nil, AutoCheckinResult{}, ErrServiceUnavailable
 		}
 	}
 
 	if !user.IsActive() {
-		return nil, nil, ErrUserNotActive
+		return nil, nil, AutoCheckinResult{}, ErrUserNotActive
 	}
 
 	if user.Username == "" && username != "" {
@@ -671,11 +701,83 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		}
 	}
 
+	autoCheckinResult, err := s.tryLinuxDoConnectAutoCheckinBonus(ctx, user.ID)
+	if err != nil {
+		return nil, nil, AutoCheckinResult{}, err
+	}
+
 	tokenPair, err := s.GenerateTokenPair(ctx, user, "")
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate token pair: %w", err)
+		return nil, nil, AutoCheckinResult{}, fmt.Errorf("generate token pair: %w", err)
 	}
-	return tokenPair, user, nil
+	return tokenPair, user, autoCheckinResult, nil
+}
+
+func (s *AuthService) tryLinuxDoConnectAutoCheckinBonus(ctx context.Context, userID int64) (AutoCheckinResult, error) {
+	if userID <= 0 || s.settingService == nil || !s.settingService.IsLinuxDoConnectAutoCheckinBonusEnabled(ctx) || s.autoCheckinRepo == nil {
+		return AutoCheckinResult{}, nil
+	}
+
+	nowFn := s.autoCheckinNow
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn().In(time.Local)
+	rewardDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	randInt := s.autoCheckinRandInt
+	if randInt == nil {
+		randInt = mathrand.IntN
+	}
+	bonusAmount := 1 + randInt(5)
+	input := CreateLinuxDoAutoCheckinRewardInput{
+		UserID:      userID,
+		RewardDate:  rewardDate,
+		Source:      LinuxDoAutoCheckinRewardSourceOAuthLogin,
+		BonusAmount: bonusAmount,
+	}
+
+	grantReward := func(runCtx context.Context) (AutoCheckinResult, error) {
+		if err := s.autoCheckinRepo.Create(runCtx, input); err != nil {
+			if errors.Is(err, ErrLinuxDoAutoCheckinRewardAlreadyGranted) {
+				return AutoCheckinResult{}, nil
+			}
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to create linuxdo auto checkin reward: %v", err)
+			return AutoCheckinResult{}, ErrServiceUnavailable
+		}
+		if err := s.userRepo.UpdateBalance(runCtx, userID, float64(bonusAmount)); err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to update balance for linuxdo auto checkin reward: %v", err)
+			return AutoCheckinResult{}, ErrServiceUnavailable
+		}
+		return AutoCheckinResult{
+			Awarded:     true,
+			BonusAmount: bonusAmount,
+		}, nil
+	}
+
+	if s.entClient == nil {
+		return grantReward(ctx)
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] Failed to begin transaction for linuxdo auto checkin reward: %v", err)
+		return AutoCheckinResult{}, ErrServiceUnavailable
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := grantReward(dbent.NewTxContext(ctx, tx))
+	if err != nil {
+		return AutoCheckinResult{}, err
+	}
+	if !result.Awarded {
+		return AutoCheckinResult{}, nil
+	}
+	if err := tx.Commit(); err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] Failed to commit linuxdo auto checkin reward transaction: %v", err)
+		return AutoCheckinResult{}, ErrServiceUnavailable
+	}
+	return result, nil
 }
 
 // pendingOAuthTokenTTL is the validity period for pending OAuth tokens.
@@ -736,18 +838,43 @@ func (s *AuthService) VerifyPendingOAuthToken(tokenStr string) (email, username 
 }
 
 func (s *AuthService) assignDefaultSubscriptions(ctx context.Context, userID int64) {
-	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
+	if s.settingService == nil {
 		return
 	}
-	items := s.settingService.GetDefaultSubscriptions(ctx)
+	s.assignConfiguredSubscriptions(
+		ctx,
+		userID,
+		s.settingService.GetDefaultSubscriptions(ctx),
+		"auto assigned by default user subscriptions setting",
+		"default",
+	)
+}
+
+func (s *AuthService) assignLinuxDoConnectGiftSubscriptions(ctx context.Context, userID int64) {
+	if s.settingService == nil {
+		return
+	}
+	s.assignConfiguredSubscriptions(
+		ctx,
+		userID,
+		s.settingService.GetLinuxDoConnectGiftSubscriptions(ctx),
+		"auto assigned by linuxdo connect gift subscriptions setting",
+		"linuxdo connect gift",
+	)
+}
+
+func (s *AuthService) assignConfiguredSubscriptions(ctx context.Context, userID int64, items []DefaultSubscriptionSetting, notes, logLabel string) {
+	if s.defaultSubAssigner == nil || userID <= 0 || len(items) == 0 {
+		return
+	}
 	for _, item := range items {
 		if _, _, err := s.defaultSubAssigner.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
 			UserID:       userID,
 			GroupID:      item.GroupID,
 			ValidityDays: item.ValidityDays,
-			Notes:        "auto assigned by default user subscriptions setting",
+			Notes:        notes,
 		}); err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to assign %s subscription: user_id=%d group_id=%d err=%v", logLabel, userID, item.GroupID, err)
 		}
 	}
 }
@@ -825,7 +952,7 @@ func randomHexString(byteLength int) (string, error) {
 		byteLength = 16
 	}
 	buf := make([]byte, byteLength)
-	if _, err := rand.Read(buf); err != nil {
+	if _, err := cryptorand.Read(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
@@ -1124,7 +1251,7 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, user *User, familyI
 func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, familyID string) (string, error) {
 	// 生成随机Token
 	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
+	if _, err := cryptorand.Read(tokenBytes); err != nil {
 		return "", fmt.Errorf("generate random bytes: %w", err)
 	}
 	rawToken := refreshTokenPrefix + hex.EncodeToString(tokenBytes)
@@ -1135,7 +1262,7 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 	// 如果没有提供familyID，生成新的
 	if familyID == "" {
 		familyBytes := make([]byte, 16)
-		if _, err := rand.Read(familyBytes); err != nil {
+		if _, err := cryptorand.Read(familyBytes); err != nil {
 			return "", fmt.Errorf("generate family id: %w", err)
 		}
 		familyID = hex.EncodeToString(familyBytes)

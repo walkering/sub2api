@@ -405,7 +405,10 @@ func parseCustomMenuItemURLs(raw string) []string {
 
 // UpdateSettings 更新系统设置
 func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSettings) error {
-	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
+	if err := s.validateSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
+		return err
+	}
+	if err := s.validateSubscriptionGroups(ctx, settings.LinuxDoConnectGiftSubscriptions); err != nil {
 		return err
 	}
 	normalizedWhitelist, err := NormalizeRegistrationEmailSuffixWhitelist(settings.RegistrationEmailSuffixWhitelist)
@@ -455,9 +458,15 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyLinuxDoConnectEnabled] = strconv.FormatBool(settings.LinuxDoConnectEnabled)
 	updates[SettingKeyLinuxDoConnectClientID] = settings.LinuxDoConnectClientID
 	updates[SettingKeyLinuxDoConnectRedirectURL] = settings.LinuxDoConnectRedirectURL
+	updates[SettingKeyLinuxDoAutoCheckinBonus] = strconv.FormatBool(settings.LinuxDoConnectAutoCheckinBonusEnabled)
 	if settings.LinuxDoConnectClientSecret != "" {
 		updates[SettingKeyLinuxDoConnectClientSecret] = settings.LinuxDoConnectClientSecret
 	}
+	linuxDoGiftSubsJSON, err := json.Marshal(settings.LinuxDoConnectGiftSubscriptions)
+	if err != nil {
+		return fmt.Errorf("marshal linuxdo connect gift subscriptions: %w", err)
+	}
+	updates[SettingKeyLinuxDoConnectGiftSubs] = string(linuxDoGiftSubsJSON)
 
 	// OEM设置
 	updates[SettingKeySiteName] = settings.SiteName
@@ -542,7 +551,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	return err
 }
 
-func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, items []DefaultSubscriptionSetting) error {
+func (s *SettingService) validateSubscriptionGroups(ctx context.Context, items []DefaultSubscriptionSetting) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -579,6 +588,10 @@ func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, 
 	}
 
 	return nil
+}
+
+func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, items []DefaultSubscriptionSetting) error {
+	return s.validateSubscriptionGroups(ctx, items)
 }
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -792,7 +805,26 @@ func (s *SettingService) GetDefaultSubscriptions(ctx context.Context) []DefaultS
 	if err != nil {
 		return nil
 	}
-	return parseDefaultSubscriptions(value)
+	return parseSubscriptionSettings(value)
+}
+
+// GetLinuxDoConnectGiftSubscriptions 获取 LinuxDo Connect 首次登录赠送订阅配置列表。
+func (s *SettingService) GetLinuxDoConnectGiftSubscriptions(ctx context.Context) []DefaultSubscriptionSetting {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyLinuxDoConnectGiftSubs)
+	if err != nil {
+		return nil
+	}
+	return parseSubscriptionSettings(value)
+}
+
+// IsLinuxDoConnectAutoCheckinBonusEnabled reports whether LinuxDo Connect logins
+// should try to grant the daily auto-checkin bonus.
+func (s *SettingService) IsLinuxDoConnectAutoCheckinBonusEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyLinuxDoAutoCheckinBonus)
+	if err != nil {
+		return false
+	}
+	return value == "true"
 }
 
 // InitializeDefaultSettings 初始化默认设置
@@ -822,6 +854,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                   strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
 		SettingKeyDefaultSubscriptions:             "[]",
+		SettingKeyLinuxDoConnectGiftSubs:           "[]",
+		SettingKeyLinuxDoAutoCheckinBonus:          "false",
 		SettingKeySMTPPort:                         "587",
 		SettingKeySMTPUseTLS:                       "false",
 		// Model fallback defaults
@@ -906,7 +940,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.DefaultBalance = s.cfg.Default.UserBalance
 	}
-	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
+	result.DefaultSubscriptions = parseSubscriptionSettings(settings[SettingKeyDefaultSubscriptions])
+	result.LinuxDoConnectGiftSubscriptions = parseSubscriptionSettings(settings[SettingKeyLinuxDoConnectGiftSubs])
+	result.LinuxDoConnectAutoCheckinBonusEnabled = settings[SettingKeyLinuxDoAutoCheckinBonus] == "true"
 
 	// 敏感信息直接返回，方便测试连接时使用
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
@@ -1003,7 +1039,7 @@ func isFalseSettingValue(value string) bool {
 	}
 }
 
-func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
+func parseSubscriptionSettings(raw string) []DefaultSubscriptionSetting {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil
@@ -1026,6 +1062,10 @@ func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
 	}
 
 	return normalized
+}
+
+func parseDefaultSubscriptions(raw string) []DefaultSubscriptionSetting {
+	return parseSubscriptionSettings(raw)
 }
 
 // getStringOrDefault 获取字符串值或默认值

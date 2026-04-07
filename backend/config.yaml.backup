@@ -1,0 +1,115 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug"
+
+timezone: "UTC"
+
+database:
+  host: "1.12.60.194"
+  port: 5432
+  user: "postgres"
+  password: "554959686"
+  dbname: "sub"
+  sslmode: "disable"
+  max_open_conns: 64
+  max_idle_conns: 32
+  conn_max_lifetime_minutes: 30
+  conn_max_idle_time_minutes: 5
+
+redis:
+  host: "1.12.60.194"
+  port: 6379
+  password: "554959686"
+  db: 0
+  pool_size: 256
+  min_idle_conns: 32
+
+jwt:
+  secret: "sub2api-dev-secret-change-in-production"
+  expire_hour: 24
+
+totp:
+  encryption_key: "e5b8a3e2f8594702d00f28537291fed0a613ba7adb7b2b59d404f809e582e402"
+
+default:
+  admin_email: "admin@example.com"
+  admin_password: "admin123"
+  user_concurrency: 5
+  user_balance: 0
+  api_key_prefix: "sk-"
+  rate_multiplier: 1.0
+
+log:
+  level: "info"
+  format: "console"
+  service_name: "sub2api"
+  env: "development"
+  caller: true
+  stacktrace_level: "error"
+  output:
+    to_stdout: true
+    to_file: false
+
+cors:
+  allowed_origins: []
+  allow_credentials: true
+
+security:
+  url_allowlist:
+    enabled: false
+    allow_private_hosts: true
+    allow_insecure_http: true
+  response_headers:
+    enabled: true
+  csp:
+    enabled: false
+
+run_mode: "simple"
+
+gateway:
+  response_header_timeout: 600
+  max_body_size: 268435456
+  connection_pool_isolation: "account_proxy"
+  max_idle_conns: 256
+  max_idle_conns_per_host: 32
+  idle_conn_timeout_seconds: 90
+  max_upstream_clients: 100
+  client_idle_ttl_seconds: 300
+  concurrency_slot_ttl_minutes: 30
+  scheduling:
+    sticky_session_max_waiting: 3
+    sticky_session_wait_timeout: 120s
+    fallback_wait_timeout: 30s
+    fallback_max_waiting: 100
+    load_batch_enabled: true
+    slot_cleanup_interval: 30s
+    db_fallback_enabled: true
+
+api_key_auth_cache:
+  l1_size: 10000
+  l1_ttl_seconds: 15
+  l2_ttl_seconds: 300
+  negative_ttl_seconds: 30
+  jitter_percent: 10
+  singleflight: true
+
+dashboard_cache:
+  enabled: true
+  key_prefix: "sub2api:"
+  stats_fresh_ttl_seconds: 15
+  stats_ttl_seconds: 30
+  stats_refresh_timeout_seconds: 30
+
+billing:
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    reset_timeout_seconds: 30
+    half_open_requests: 3
+
+turnstile:
+  required: false
+
+ops:
+  enabled: true

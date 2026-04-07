@@ -104,6 +104,8 @@ const (
 	SettingKeyLinuxDoConnectClientID     = "linuxdo_connect_client_id"
 	SettingKeyLinuxDoConnectClientSecret = "linuxdo_connect_client_secret"
 	SettingKeyLinuxDoConnectRedirectURL  = "linuxdo_connect_redirect_url"
+	SettingKeyLinuxDoConnectGiftSubs     = "linuxdo_connect_gift_subscriptions"
+	SettingKeyLinuxDoAutoCheckinBonus    = "linuxdo_connect_auto_checkin_bonus_enabled"
 
 	// OEM设置
 	SettingKeySiteName                    = "site_name"                     // 网站名称
