@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +17,7 @@ type accountRepoStubForBulkUpdate struct {
 	bulkUpdateIDs    []int64
 	bindGroupErrByID map[int64]error
 	bindGroupsCalls  []int64
+	bindGroupsByID   map[int64][]int64
 	getByIDsAccounts []*Account
 	getByIDsErr      error
 	getByIDsCalled   bool
@@ -35,8 +37,12 @@ func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64
 	return int64(len(ids)), nil
 }
 
-func (s *accountRepoStubForBulkUpdate) BindGroups(_ context.Context, accountID int64, _ []int64) error {
+func (s *accountRepoStubForBulkUpdate) BindGroups(_ context.Context, accountID int64, groupIDs []int64) error {
 	s.bindGroupsCalls = append(s.bindGroupsCalls, accountID)
+	if s.bindGroupsByID == nil {
+		s.bindGroupsByID = make(map[int64][]int64)
+	}
+	s.bindGroupsByID[accountID] = append([]int64(nil), groupIDs...)
 	if err, ok := s.bindGroupErrByID[accountID]; ok {
 		return err
 	}
@@ -139,6 +145,83 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Contains(t, err.Error(), "group repository not configured")
 }
 
+func TestAdminService_BulkUpdateAccounts_ScopeGroupFiltersIDs(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, GroupIDs: []int64{10}},
+			{ID: 2, GroupIDs: []int64{11}},
+			{ID: 3, GroupIDs: []int64{10, 11}},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	scopeGroupID := int64(10)
+	schedulable := true
+	input := &BulkUpdateAccountsInput{
+		AccountIDs:   []int64{1, 2, 3},
+		ScopeGroupID: &scopeGroupID,
+		Schedulable:  &schedulable,
+	}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 3}, repo.bulkUpdateIDs)
+	require.Equal(t, 2, result.Success)
+	require.ElementsMatch(t, []int64{1, 3}, result.SuccessIDs)
+	require.Empty(t, result.FailedIDs)
+}
+
+func TestAdminService_BulkUpdateAccounts_ScopeGroupEmptyReturnsError(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, GroupIDs: []int64{11}},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	scopeGroupID := int64(10)
+	schedulable := true
+	input := &BulkUpdateAccountsInput{
+		AccountIDs:   []int64{1},
+		ScopeGroupID: &scopeGroupID,
+		Schedulable:  &schedulable,
+	}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scope group")
+}
+
+func TestAdminService_BulkUpdateAccounts_ScopeGroupOnlyFiltersExecutionRange(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, GroupIDs: []int64{10}},
+			{ID: 2, GroupIDs: []int64{11}},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "scope-group"}},
+	}
+
+	scopeGroupID := int64(10)
+	groupIDs := []int64{20}
+	input := &BulkUpdateAccountsInput{
+		AccountIDs:   []int64{1, 2},
+		ScopeGroupID: &scopeGroupID,
+		GroupIDs:     &groupIDs,
+	}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1}, repo.bulkUpdateIDs)
+	require.Equal(t, []int64{20}, repo.bindGroupsByID[1])
+	require.Nil(t, repo.bindGroupsByID[2])
+	require.Equal(t, 1, result.Success)
+	require.ElementsMatch(t, []int64{1}, result.SuccessIDs)
+}
+
 // TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies
 // that the global pre-check detects a conflict with existing group members and returns an
 // error before any DB write is performed.
@@ -168,5 +251,91 @@ func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingCon
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "mixed channel")
 	// No BindGroups should have been called since the check runs before any write.
+	require.Empty(t, repo.bindGroupsCalls)
+}
+
+func TestAdminService_TransferAccountsByGroup_Success(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		listByGroupData: map[int64][]Account{
+			10: {
+				{ID: 1, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
+				{ID: 2, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
+				{ID: 3, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
+			},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{
+			getByID: &Group{ID: 10, Name: "g10"},
+		},
+	}
+
+	result, err := svc.TransferAccountsByGroup(context.Background(), &TransferAccountsByGroupInput{
+		SourceGroupID: 10,
+		TargetGroupID: 20,
+		Count:         2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, result.MovedCount)
+	require.Equal(t, AccountTypeOAuth, result.AccountType)
+	require.Equal(t, []int64{1, 2}, result.AccountIDs)
+	require.Equal(t, []int64{20}, repo.bindGroupsByID[1])
+	require.Equal(t, []int64{20}, repo.bindGroupsByID[2])
+}
+
+func TestAdminService_TransferAccountsByGroup_InsufficientAfterFiltering(t *testing.T) {
+	rateLimitedUntil := time.Now().Add(10 * time.Minute)
+	repo := &accountRepoStubForBulkUpdate{
+		listByGroupData: map[int64][]Account{
+			10: {
+				{ID: 1, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
+				{ID: 2, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, RateLimitResetAt: &rateLimitedUntil},
+				{ID: 3, Type: AccountTypeOAuth, Status: StatusDisabled, Schedulable: true},
+			},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{
+			getByID: &Group{ID: 10, Name: "g10"},
+		},
+	}
+
+	result, err := svc.TransferAccountsByGroup(context.Background(), &TransferAccountsByGroupInput{
+		SourceGroupID:  10,
+		TargetGroupID:  20,
+		Count:          2,
+		BusyAccountIDs: []int64{1},
+	})
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requested 2, available 0")
+}
+
+func TestAdminService_TransferAccountsByGroup_MixedTypesRejected(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		listByGroupData: map[int64][]Account{
+			10: {
+				{ID: 1, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true},
+				{ID: 2, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true},
+			},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{
+			getByID: &Group{ID: 10, Name: "g10"},
+		},
+	}
+
+	result, err := svc.TransferAccountsByGroup(context.Background(), &TransferAccountsByGroupInput{
+		SourceGroupID: 10,
+		TargetGroupID: 20,
+		Count:         1,
+	})
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "same type")
 	require.Empty(t, repo.bindGroupsCalls)
 }

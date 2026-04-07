@@ -53,6 +53,79 @@ func NewSettingHandler(settingService *service.SettingService, emailService *ser
 	}
 }
 
+func toDTOSubscriptionSettings(items []service.DefaultSubscriptionSetting) []dto.DefaultSubscriptionSetting {
+	result := make([]dto.DefaultSubscriptionSetting, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.DefaultSubscriptionSetting{
+			GroupID:      item.GroupID,
+			ValidityDays: item.ValidityDays,
+		})
+	}
+	return result
+}
+
+func buildSystemSettingsDTO(settings *service.SystemSettings, totpEncryptionKeyConfigured bool, opsMonitoringEnabled bool) dto.SystemSettings {
+	return dto.SystemSettings{
+		RegistrationEnabled:                   settings.RegistrationEnabled,
+		EmailVerifyEnabled:                    settings.EmailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:      settings.RegistrationEmailSuffixWhitelist,
+		PromoCodeEnabled:                      settings.PromoCodeEnabled,
+		PasswordResetEnabled:                  settings.PasswordResetEnabled,
+		FrontendURL:                           settings.FrontendURL,
+		InvitationCodeEnabled:                 settings.InvitationCodeEnabled,
+		TotpEnabled:                           settings.TotpEnabled,
+		TotpEncryptionKeyConfigured:           totpEncryptionKeyConfigured,
+		SMTPHost:                              settings.SMTPHost,
+		SMTPPort:                              settings.SMTPPort,
+		SMTPUsername:                          settings.SMTPUsername,
+		SMTPPasswordConfigured:                settings.SMTPPasswordConfigured,
+		SMTPFrom:                              settings.SMTPFrom,
+		SMTPFromName:                          settings.SMTPFromName,
+		SMTPUseTLS:                            settings.SMTPUseTLS,
+		TurnstileEnabled:                      settings.TurnstileEnabled,
+		TurnstileSiteKey:                      settings.TurnstileSiteKey,
+		TurnstileSecretKeyConfigured:          settings.TurnstileSecretKeyConfigured,
+		LinuxDoConnectEnabled:                 settings.LinuxDoConnectEnabled,
+		LinuxDoConnectClientID:                settings.LinuxDoConnectClientID,
+		LinuxDoConnectClientSecretConfigured:  settings.LinuxDoConnectClientSecretConfigured,
+		LinuxDoConnectRedirectURL:             settings.LinuxDoConnectRedirectURL,
+		LinuxDoConnectAutoCheckinBonusEnabled: settings.LinuxDoConnectAutoCheckinBonusEnabled,
+		LinuxDoConnectGiftSubscriptions:       toDTOSubscriptionSettings(settings.LinuxDoConnectGiftSubscriptions),
+		SiteName:                              settings.SiteName,
+		SiteLogo:                              settings.SiteLogo,
+		SiteSubtitle:                          settings.SiteSubtitle,
+		APIBaseURL:                            settings.APIBaseURL,
+		ContactInfo:                           settings.ContactInfo,
+		DocURL:                                settings.DocURL,
+		HomeContent:                           settings.HomeContent,
+		HideCcsImportButton:                   settings.HideCcsImportButton,
+		PurchaseSubscriptionEnabled:           settings.PurchaseSubscriptionEnabled,
+		PurchaseSubscriptionURL:               settings.PurchaseSubscriptionURL,
+		CustomMenuItems:                       dto.ParseCustomMenuItems(settings.CustomMenuItems),
+		CustomEndpoints:                       dto.ParseCustomEndpoints(settings.CustomEndpoints),
+		DefaultConcurrency:                    settings.DefaultConcurrency,
+		DefaultBalance:                        settings.DefaultBalance,
+		DefaultSubscriptions:                  toDTOSubscriptionSettings(settings.DefaultSubscriptions),
+		EnableModelFallback:                   settings.EnableModelFallback,
+		FallbackModelAnthropic:                settings.FallbackModelAnthropic,
+		FallbackModelOpenAI:                   settings.FallbackModelOpenAI,
+		FallbackModelGemini:                   settings.FallbackModelGemini,
+		FallbackModelAntigravity:              settings.FallbackModelAntigravity,
+		EnableIdentityPatch:                   settings.EnableIdentityPatch,
+		IdentityPatchPrompt:                   settings.IdentityPatchPrompt,
+		OpsMonitoringEnabled:                  opsMonitoringEnabled,
+		OpsRealtimeMonitoringEnabled:          settings.OpsRealtimeMonitoringEnabled,
+		OpsQueryModeDefault:                   settings.OpsQueryModeDefault,
+		OpsMetricsIntervalSeconds:             settings.OpsMetricsIntervalSeconds,
+		MinClaudeCodeVersion:                  settings.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:                  settings.MaxClaudeCodeVersion,
+		AllowUngroupedKeyScheduling:           settings.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:                    settings.BackendModeEnabled,
+		EnableFingerprintUnification:          settings.EnableFingerprintUnification,
+		EnableMetadataPassthrough:             settings.EnableMetadataPassthrough,
+	}
+}
+
 // GetSettings 获取所有系统设置
 // GET /api/v1/admin/settings
 func (h *SettingHandler) GetSettings(c *gin.Context) {
@@ -64,80 +137,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 	// Check if ops monitoring is enabled (respects config.ops.enabled)
 	opsEnabled := h.opsService != nil && h.opsService.IsMonitoringEnabled(c.Request.Context())
-	defaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(settings.DefaultSubscriptions))
-	for _, sub := range settings.DefaultSubscriptions {
-		defaultSubscriptions = append(defaultSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-	linuxDoGiftSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(settings.LinuxDoConnectGiftSubscriptions))
-	for _, sub := range settings.LinuxDoConnectGiftSubscriptions {
-		linuxDoGiftSubscriptions = append(linuxDoGiftSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
-	response.Success(c, dto.SystemSettings{
-		RegistrationEnabled:                  settings.RegistrationEnabled,
-		EmailVerifyEnabled:                   settings.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:     settings.RegistrationEmailSuffixWhitelist,
-		PromoCodeEnabled:                     settings.PromoCodeEnabled,
-		PasswordResetEnabled:                 settings.PasswordResetEnabled,
-		FrontendURL:                          settings.FrontendURL,
-		InvitationCodeEnabled:                settings.InvitationCodeEnabled,
-		TotpEnabled:                          settings.TotpEnabled,
-		TotpEncryptionKeyConfigured:          h.settingService.IsTotpEncryptionKeyConfigured(),
-		SMTPHost:                             settings.SMTPHost,
-		SMTPPort:                             settings.SMTPPort,
-		SMTPUsername:                         settings.SMTPUsername,
-		SMTPPasswordConfigured:               settings.SMTPPasswordConfigured,
-		SMTPFrom:                             settings.SMTPFrom,
-		SMTPFromName:                         settings.SMTPFromName,
-		SMTPUseTLS:                           settings.SMTPUseTLS,
-		TurnstileEnabled:                     settings.TurnstileEnabled,
-		TurnstileSiteKey:                     settings.TurnstileSiteKey,
-		TurnstileSecretKeyConfigured:         settings.TurnstileSecretKeyConfigured,
-		LinuxDoConnectEnabled:                settings.LinuxDoConnectEnabled,
-		LinuxDoConnectClientID:               settings.LinuxDoConnectClientID,
-		LinuxDoConnectClientSecretConfigured: settings.LinuxDoConnectClientSecretConfigured,
-		LinuxDoConnectRedirectURL:            settings.LinuxDoConnectRedirectURL,
-		LinuxDoConnectAutoCheckinBonusEnabled: settings.LinuxDoConnectAutoCheckinBonusEnabled,
-		LinuxDoConnectGiftSubscriptions:      linuxDoGiftSubscriptions,
-		SiteName:                             settings.SiteName,
-		SiteLogo:                             settings.SiteLogo,
-		SiteSubtitle:                         settings.SiteSubtitle,
-		APIBaseURL:                           settings.APIBaseURL,
-		ContactInfo:                          settings.ContactInfo,
-		DocURL:                               settings.DocURL,
-		HomeContent:                          settings.HomeContent,
-		HideCcsImportButton:                  settings.HideCcsImportButton,
-		PurchaseSubscriptionEnabled:          settings.PurchaseSubscriptionEnabled,
-		PurchaseSubscriptionURL:              settings.PurchaseSubscriptionURL,
-		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
-		CustomEndpoints:                      dto.ParseCustomEndpoints(settings.CustomEndpoints),
-		DefaultConcurrency:                   settings.DefaultConcurrency,
-		DefaultBalance:                       settings.DefaultBalance,
-		DefaultSubscriptions:                 defaultSubscriptions,
-		EnableModelFallback:                  settings.EnableModelFallback,
-		FallbackModelAnthropic:               settings.FallbackModelAnthropic,
-		FallbackModelOpenAI:                  settings.FallbackModelOpenAI,
-		FallbackModelGemini:                  settings.FallbackModelGemini,
-		FallbackModelAntigravity:             settings.FallbackModelAntigravity,
-		EnableIdentityPatch:                  settings.EnableIdentityPatch,
-		IdentityPatchPrompt:                  settings.IdentityPatchPrompt,
-		OpsMonitoringEnabled:                 opsEnabled && settings.OpsMonitoringEnabled,
-		OpsRealtimeMonitoringEnabled:         settings.OpsRealtimeMonitoringEnabled,
-		OpsQueryModeDefault:                  settings.OpsQueryModeDefault,
-		OpsMetricsIntervalSeconds:            settings.OpsMetricsIntervalSeconds,
-		MinClaudeCodeVersion:                 settings.MinClaudeCodeVersion,
-		MaxClaudeCodeVersion:                 settings.MaxClaudeCodeVersion,
-		AllowUngroupedKeyScheduling:          settings.AllowUngroupedKeyScheduling,
-		BackendModeEnabled:                   settings.BackendModeEnabled,
-		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
-		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
-	})
+	response.Success(c, buildSystemSettingsDTO(
+		settings,
+		h.settingService.IsTotpEncryptionKeyConfigured(),
+		opsEnabled && settings.OpsMonitoringEnabled,
+	))
 }
 
 // UpdateSettingsRequest 更新设置请求
@@ -167,12 +171,12 @@ type UpdateSettingsRequest struct {
 	TurnstileSecretKey string `json:"turnstile_secret_key"`
 
 	// LinuxDo Connect OAuth 登录
-	LinuxDoConnectEnabled           bool                             `json:"linuxdo_connect_enabled"`
-	LinuxDoConnectClientID          string                           `json:"linuxdo_connect_client_id"`
-	LinuxDoConnectClientSecret      string                           `json:"linuxdo_connect_client_secret"`
-	LinuxDoConnectRedirectURL       string                           `json:"linuxdo_connect_redirect_url"`
-	LinuxDoConnectAutoCheckinBonusEnabled bool                       `json:"linuxdo_connect_auto_checkin_bonus_enabled"`
-	LinuxDoConnectGiftSubscriptions []dto.DefaultSubscriptionSetting `json:"linuxdo_connect_gift_subscriptions"`
+	LinuxDoConnectEnabled                 bool                             `json:"linuxdo_connect_enabled"`
+	LinuxDoConnectClientID                string                           `json:"linuxdo_connect_client_id"`
+	LinuxDoConnectClientSecret            string                           `json:"linuxdo_connect_client_secret"`
+	LinuxDoConnectRedirectURL             string                           `json:"linuxdo_connect_redirect_url"`
+	LinuxDoConnectAutoCheckinBonusEnabled bool                             `json:"linuxdo_connect_auto_checkin_bonus_enabled"`
+	LinuxDoConnectGiftSubscriptions       []dto.DefaultSubscriptionSetting `json:"linuxdo_connect_gift_subscriptions"`
 
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
@@ -549,56 +553,56 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	settings := &service.SystemSettings{
-		RegistrationEnabled:              req.RegistrationEnabled,
-		EmailVerifyEnabled:               req.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
-		PromoCodeEnabled:                 req.PromoCodeEnabled,
-		PasswordResetEnabled:             req.PasswordResetEnabled,
-		FrontendURL:                      req.FrontendURL,
-		InvitationCodeEnabled:            req.InvitationCodeEnabled,
-		TotpEnabled:                      req.TotpEnabled,
-		SMTPHost:                         req.SMTPHost,
-		SMTPPort:                         req.SMTPPort,
-		SMTPUsername:                     req.SMTPUsername,
-		SMTPPassword:                     req.SMTPPassword,
-		SMTPFrom:                         req.SMTPFrom,
-		SMTPFromName:                     req.SMTPFromName,
-		SMTPUseTLS:                       req.SMTPUseTLS,
-		TurnstileEnabled:                 req.TurnstileEnabled,
-		TurnstileSiteKey:                 req.TurnstileSiteKey,
-		TurnstileSecretKey:               req.TurnstileSecretKey,
-		LinuxDoConnectEnabled:            req.LinuxDoConnectEnabled,
-		LinuxDoConnectClientID:           req.LinuxDoConnectClientID,
-		LinuxDoConnectClientSecret:       req.LinuxDoConnectClientSecret,
-		LinuxDoConnectRedirectURL:        req.LinuxDoConnectRedirectURL,
+		RegistrationEnabled:                   req.RegistrationEnabled,
+		EmailVerifyEnabled:                    req.EmailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:      req.RegistrationEmailSuffixWhitelist,
+		PromoCodeEnabled:                      req.PromoCodeEnabled,
+		PasswordResetEnabled:                  req.PasswordResetEnabled,
+		FrontendURL:                           req.FrontendURL,
+		InvitationCodeEnabled:                 req.InvitationCodeEnabled,
+		TotpEnabled:                           req.TotpEnabled,
+		SMTPHost:                              req.SMTPHost,
+		SMTPPort:                              req.SMTPPort,
+		SMTPUsername:                          req.SMTPUsername,
+		SMTPPassword:                          req.SMTPPassword,
+		SMTPFrom:                              req.SMTPFrom,
+		SMTPFromName:                          req.SMTPFromName,
+		SMTPUseTLS:                            req.SMTPUseTLS,
+		TurnstileEnabled:                      req.TurnstileEnabled,
+		TurnstileSiteKey:                      req.TurnstileSiteKey,
+		TurnstileSecretKey:                    req.TurnstileSecretKey,
+		LinuxDoConnectEnabled:                 req.LinuxDoConnectEnabled,
+		LinuxDoConnectClientID:                req.LinuxDoConnectClientID,
+		LinuxDoConnectClientSecret:            req.LinuxDoConnectClientSecret,
+		LinuxDoConnectRedirectURL:             req.LinuxDoConnectRedirectURL,
 		LinuxDoConnectAutoCheckinBonusEnabled: req.LinuxDoConnectAutoCheckinBonusEnabled,
-		LinuxDoConnectGiftSubscriptions:  linuxDoGiftSubscriptions,
-		SiteName:                         req.SiteName,
-		SiteLogo:                         req.SiteLogo,
-		SiteSubtitle:                     req.SiteSubtitle,
-		APIBaseURL:                       req.APIBaseURL,
-		ContactInfo:                      req.ContactInfo,
-		DocURL:                           req.DocURL,
-		HomeContent:                      req.HomeContent,
-		HideCcsImportButton:              req.HideCcsImportButton,
-		PurchaseSubscriptionEnabled:      purchaseEnabled,
-		PurchaseSubscriptionURL:          purchaseURL,
-		CustomMenuItems:                  customMenuJSON,
-		CustomEndpoints:                  customEndpointsJSON,
-		DefaultConcurrency:               req.DefaultConcurrency,
-		DefaultBalance:                   req.DefaultBalance,
-		DefaultSubscriptions:             defaultSubscriptions,
-		EnableModelFallback:              req.EnableModelFallback,
-		FallbackModelAnthropic:           req.FallbackModelAnthropic,
-		FallbackModelOpenAI:              req.FallbackModelOpenAI,
-		FallbackModelGemini:              req.FallbackModelGemini,
-		FallbackModelAntigravity:         req.FallbackModelAntigravity,
-		EnableIdentityPatch:              req.EnableIdentityPatch,
-		IdentityPatchPrompt:              req.IdentityPatchPrompt,
-		MinClaudeCodeVersion:             req.MinClaudeCodeVersion,
-		MaxClaudeCodeVersion:             req.MaxClaudeCodeVersion,
-		AllowUngroupedKeyScheduling:      req.AllowUngroupedKeyScheduling,
-		BackendModeEnabled:               req.BackendModeEnabled,
+		LinuxDoConnectGiftSubscriptions:       linuxDoGiftSubscriptions,
+		SiteName:                              req.SiteName,
+		SiteLogo:                              req.SiteLogo,
+		SiteSubtitle:                          req.SiteSubtitle,
+		APIBaseURL:                            req.APIBaseURL,
+		ContactInfo:                           req.ContactInfo,
+		DocURL:                                req.DocURL,
+		HomeContent:                           req.HomeContent,
+		HideCcsImportButton:                   req.HideCcsImportButton,
+		PurchaseSubscriptionEnabled:           purchaseEnabled,
+		PurchaseSubscriptionURL:               purchaseURL,
+		CustomMenuItems:                       customMenuJSON,
+		CustomEndpoints:                       customEndpointsJSON,
+		DefaultConcurrency:                    req.DefaultConcurrency,
+		DefaultBalance:                        req.DefaultBalance,
+		DefaultSubscriptions:                  defaultSubscriptions,
+		EnableModelFallback:                   req.EnableModelFallback,
+		FallbackModelAnthropic:                req.FallbackModelAnthropic,
+		FallbackModelOpenAI:                   req.FallbackModelOpenAI,
+		FallbackModelGemini:                   req.FallbackModelGemini,
+		FallbackModelAntigravity:              req.FallbackModelAntigravity,
+		EnableIdentityPatch:                   req.EnableIdentityPatch,
+		IdentityPatchPrompt:                   req.IdentityPatchPrompt,
+		MinClaudeCodeVersion:                  req.MinClaudeCodeVersion,
+		MaxClaudeCodeVersion:                  req.MaxClaudeCodeVersion,
+		AllowUngroupedKeyScheduling:           req.AllowUngroupedKeyScheduling,
+		BackendModeEnabled:                    req.BackendModeEnabled,
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
 				return *req.OpsMonitoringEnabled
@@ -650,80 +654,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	updatedDefaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.DefaultSubscriptions))
-	for _, sub := range updatedSettings.DefaultSubscriptions {
-		updatedDefaultSubscriptions = append(updatedDefaultSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-	updatedLinuxDoGiftSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.LinuxDoConnectGiftSubscriptions))
-	for _, sub := range updatedSettings.LinuxDoConnectGiftSubscriptions {
-		updatedLinuxDoGiftSubscriptions = append(updatedLinuxDoGiftSubscriptions, dto.DefaultSubscriptionSetting{
-			GroupID:      sub.GroupID,
-			ValidityDays: sub.ValidityDays,
-		})
-	}
-
-	response.Success(c, dto.SystemSettings{
-		RegistrationEnabled:                  updatedSettings.RegistrationEnabled,
-		EmailVerifyEnabled:                   updatedSettings.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:     updatedSettings.RegistrationEmailSuffixWhitelist,
-		PromoCodeEnabled:                     updatedSettings.PromoCodeEnabled,
-		PasswordResetEnabled:                 updatedSettings.PasswordResetEnabled,
-		FrontendURL:                          updatedSettings.FrontendURL,
-		InvitationCodeEnabled:                updatedSettings.InvitationCodeEnabled,
-		TotpEnabled:                          updatedSettings.TotpEnabled,
-		TotpEncryptionKeyConfigured:          h.settingService.IsTotpEncryptionKeyConfigured(),
-		SMTPHost:                             updatedSettings.SMTPHost,
-		SMTPPort:                             updatedSettings.SMTPPort,
-		SMTPUsername:                         updatedSettings.SMTPUsername,
-		SMTPPasswordConfigured:               updatedSettings.SMTPPasswordConfigured,
-		SMTPFrom:                             updatedSettings.SMTPFrom,
-		SMTPFromName:                         updatedSettings.SMTPFromName,
-		SMTPUseTLS:                           updatedSettings.SMTPUseTLS,
-		TurnstileEnabled:                     updatedSettings.TurnstileEnabled,
-		TurnstileSiteKey:                     updatedSettings.TurnstileSiteKey,
-		TurnstileSecretKeyConfigured:         updatedSettings.TurnstileSecretKeyConfigured,
-		LinuxDoConnectEnabled:                updatedSettings.LinuxDoConnectEnabled,
-		LinuxDoConnectClientID:               updatedSettings.LinuxDoConnectClientID,
-		LinuxDoConnectClientSecretConfigured: updatedSettings.LinuxDoConnectClientSecretConfigured,
-		LinuxDoConnectRedirectURL:            updatedSettings.LinuxDoConnectRedirectURL,
-		LinuxDoConnectAutoCheckinBonusEnabled: updatedSettings.LinuxDoConnectAutoCheckinBonusEnabled,
-		LinuxDoConnectGiftSubscriptions:      updatedLinuxDoGiftSubscriptions,
-		SiteName:                             updatedSettings.SiteName,
-		SiteLogo:                             updatedSettings.SiteLogo,
-		SiteSubtitle:                         updatedSettings.SiteSubtitle,
-		APIBaseURL:                           updatedSettings.APIBaseURL,
-		ContactInfo:                          updatedSettings.ContactInfo,
-		DocURL:                               updatedSettings.DocURL,
-		HomeContent:                          updatedSettings.HomeContent,
-		HideCcsImportButton:                  updatedSettings.HideCcsImportButton,
-		PurchaseSubscriptionEnabled:          updatedSettings.PurchaseSubscriptionEnabled,
-		PurchaseSubscriptionURL:              updatedSettings.PurchaseSubscriptionURL,
-		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
-		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
-		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
-		DefaultBalance:                       updatedSettings.DefaultBalance,
-		DefaultSubscriptions:                 updatedDefaultSubscriptions,
-		EnableModelFallback:                  updatedSettings.EnableModelFallback,
-		FallbackModelAnthropic:               updatedSettings.FallbackModelAnthropic,
-		FallbackModelOpenAI:                  updatedSettings.FallbackModelOpenAI,
-		FallbackModelGemini:                  updatedSettings.FallbackModelGemini,
-		FallbackModelAntigravity:             updatedSettings.FallbackModelAntigravity,
-		EnableIdentityPatch:                  updatedSettings.EnableIdentityPatch,
-		IdentityPatchPrompt:                  updatedSettings.IdentityPatchPrompt,
-		OpsMonitoringEnabled:                 updatedSettings.OpsMonitoringEnabled,
-		OpsRealtimeMonitoringEnabled:         updatedSettings.OpsRealtimeMonitoringEnabled,
-		OpsQueryModeDefault:                  updatedSettings.OpsQueryModeDefault,
-		OpsMetricsIntervalSeconds:            updatedSettings.OpsMetricsIntervalSeconds,
-		MinClaudeCodeVersion:                 updatedSettings.MinClaudeCodeVersion,
-		MaxClaudeCodeVersion:                 updatedSettings.MaxClaudeCodeVersion,
-		AllowUngroupedKeyScheduling:          updatedSettings.AllowUngroupedKeyScheduling,
-		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
-		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
-		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
-	})
+	response.Success(c, buildSystemSettingsDTO(
+		updatedSettings,
+		h.settingService.IsTotpEncryptionKeyConfigured(),
+		updatedSettings.OpsMonitoringEnabled,
+	))
 }
 
 func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.SystemSettings, after *service.SystemSettings, req UpdateSettingsRequest) {

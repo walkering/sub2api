@@ -135,6 +135,7 @@ type UpdateAccountRequest struct {
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
 	AccountIDs              []int64        `json:"account_ids" binding:"required,min=1"`
+	ScopeGroupID            *int64         `json:"scope_group_id"`
 	Name                    string         `json:"name"`
 	ProxyID                 *int64         `json:"proxy_id"`
 	Concurrency             *int           `json:"concurrency"`
@@ -147,6 +148,17 @@ type BulkUpdateAccountsRequest struct {
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+}
+
+type scopedBatchAccountsRequest struct {
+	AccountIDs   []int64 `json:"account_ids"`
+	ScopeGroupID *int64  `json:"scope_group_id"`
+}
+
+type TransferAccountsByGroupRequest struct {
+	SourceGroupID int64 `json:"source_group_id" binding:"required"`
+	TargetGroupID int64 `json:"target_group_id" binding:"required"`
+	Count         int   `json:"count" binding:"required"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -987,12 +999,68 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+func (h *AccountHandler) resolveScopeGroupAccountIDs(ctx context.Context, accountIDs []int64, scopeGroupID *int64) ([]int64, error) {
+	if scopeGroupID == nil || *scopeGroupID <= 0 {
+		return accountIDs, nil
+	}
+
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]int64, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		for _, account := range accounts {
+			if account == nil || account.ID != accountID {
+				continue
+			}
+			for _, groupID := range account.GroupIDs {
+				if groupID == *scopeGroupID {
+					filtered = append(filtered, accountID)
+					break
+				}
+			}
+			break
+		}
+	}
+
+	return filtered, nil
+}
+
+func (h *AccountHandler) collectBusyAccountIDs(ctx context.Context, accounts []service.Account) []int64 {
+	if h.concurrencyService == nil || len(accounts) == 0 {
+		return nil
+	}
+
+	accountIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].ID > 0 {
+			accountIDs = append(accountIDs, accounts[i].ID)
+		}
+	}
+	if len(accountIDs) == 0 {
+		return nil
+	}
+
+	counts, err := h.concurrencyService.GetAccountConcurrencyBatch(ctx, accountIDs)
+	if err != nil {
+		return nil
+	}
+
+	busyIDs := make([]int64, 0)
+	for _, accountID := range accountIDs {
+		if counts[accountID] > 0 {
+			busyIDs = append(busyIDs, accountID)
+		}
+	}
+	return busyIDs
+}
+
 // BatchClearError handles batch clearing account errors
 // POST /api/v1/admin/accounts/batch-clear-error
 func (h *AccountHandler) BatchClearError(c *gin.Context) {
-	var req struct {
-		AccountIDs []int64 `json:"account_ids"`
-	}
+	var req scopedBatchAccountsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
@@ -1003,6 +1071,15 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	targetIDs, err := h.resolveScopeGroupAccountIDs(ctx, req.AccountIDs, req.ScopeGroupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if len(targetIDs) == 0 {
+		response.BadRequest(c, "no selected accounts found in the scope group")
+		return
+	}
 
 	const maxConcurrency = 10
 	g, gctx := errgroup.WithContext(ctx)
@@ -1013,7 +1090,7 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 	var errors []gin.H
 
 	// 注意：所有 goroutine 必须 return nil，避免 errgroup cancel 其他并发任务
-	for _, id := range req.AccountIDs {
+	for _, id := range targetIDs {
 		accountID := id // 闭包捕获
 		g.Go(func() error {
 			account, err := h.adminService.ClearAccountError(gctx, accountID)
@@ -1048,7 +1125,7 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"total":   len(req.AccountIDs),
+		"total":   len(targetIDs),
 		"success": successCount,
 		"failed":  failedCount,
 		"errors":  errors,
@@ -1058,9 +1135,7 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 // BatchRefresh handles batch refreshing account credentials
 // POST /api/v1/admin/accounts/batch-refresh
 func (h *AccountHandler) BatchRefresh(c *gin.Context) {
-	var req struct {
-		AccountIDs []int64 `json:"account_ids"`
-	}
+	var req scopedBatchAccountsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
@@ -1071,8 +1146,17 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	targetIDs, err := h.resolveScopeGroupAccountIDs(ctx, req.AccountIDs, req.ScopeGroupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if len(targetIDs) == 0 {
+		response.BadRequest(c, "no selected accounts found in the scope group")
+		return
+	}
 
-	accounts, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, targetIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1096,7 +1180,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 	var warnings []gin.H
 
 	// 将不存在的账号 ID 标记为失败
-	for _, id := range req.AccountIDs {
+	for _, id := range targetIDs {
 		if !foundIDs[id] {
 			failedCount++
 			errors = append(errors, gin.H{
@@ -1141,7 +1225,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"total":    len(req.AccountIDs),
+		"total":    len(targetIDs),
 		"success":  successCount,
 		"failed":   failedCount,
 		"errors":   errors,
@@ -1391,6 +1475,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
 		AccountIDs:            req.AccountIDs,
+		ScopeGroupID:          req.ScopeGroupID,
 		Name:                  req.Name,
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency,
@@ -1413,6 +1498,35 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 			})
 			return
 		}
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
+// TransferAccountsByGroup handles moving available accounts from one group to another by count.
+// POST /api/v1/admin/accounts/group-transfer
+func (h *AccountHandler) TransferAccountsByGroup(c *gin.Context) {
+	var req TransferAccountsByGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	sourceAccounts, _, err := h.adminService.ListAccounts(c.Request.Context(), 1, 10000, "", "", "", "", req.SourceGroupID, "")
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	result, err := h.adminService.TransferAccountsByGroup(c.Request.Context(), &service.TransferAccountsByGroupInput{
+		SourceGroupID:  req.SourceGroupID,
+		TargetGroupID:  req.TargetGroupID,
+		Count:          req.Count,
+		BusyAccountIDs: h.collectBusyAccountIDs(c.Request.Context(), sourceAccounts),
+	})
+	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

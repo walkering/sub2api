@@ -17,7 +17,9 @@ import type {
   AdminDataPayload,
   AdminDataImportResult,
   CheckMixedChannelRequest,
-  CheckMixedChannelResponse
+  CheckMixedChannelResponse,
+  TransferAccountsByGroupRequest,
+  TransferAccountsByGroupResult
 } from '@/types'
 
 /**
@@ -592,6 +594,23 @@ export async function batchClearError(accountIds: number[]): Promise<BatchOperat
 }
 
 /**
+ * Batch clear account errors within an optional scope group.
+ * @param accountIds - Array of account IDs
+ * @param scopeGroupId - Optional group ID used to further filter selected accounts
+ * @returns Batch operation result
+ */
+export async function batchClearErrorScoped(
+  accountIds: number[],
+  scopeGroupId?: number | null
+): Promise<BatchOperationResult> {
+  const { data } = await apiClient.post<BatchOperationResult>('/admin/accounts/batch-clear-error', {
+    account_ids: accountIds,
+    ...(scopeGroupId ? { scope_group_id: scopeGroupId } : {})
+  })
+  return data
+}
+
+/**
  * Batch refresh account credentials
  * @param accountIds - Array of account IDs
  * @returns Batch operation result
@@ -602,6 +621,32 @@ export async function batchRefresh(accountIds: number[]): Promise<BatchOperation
   }, {
     timeout: 120000  // 120s timeout for large batch refreshes
   })
+  return data
+}
+
+/**
+ * Batch refresh account credentials within an optional scope group.
+ * @param accountIds - Array of account IDs
+ * @param scopeGroupId - Optional group ID used to further filter selected accounts
+ * @returns Batch operation result
+ */
+export async function batchRefreshScoped(
+  accountIds: number[],
+  scopeGroupId?: number | null
+): Promise<BatchOperationResult> {
+  const { data } = await apiClient.post<BatchOperationResult>('/admin/accounts/batch-refresh', {
+    account_ids: accountIds,
+    ...(scopeGroupId ? { scope_group_id: scopeGroupId } : {})
+  }, {
+    timeout: 120000  // 120s timeout for large batch refreshes
+  })
+  return data
+}
+
+export async function transferAccountsByGroup(
+  payload: TransferAccountsByGroupRequest
+): Promise<TransferAccountsByGroupResult> {
+  const { data } = await apiClient.post<TransferAccountsByGroupResult>('/admin/accounts/group-transfer', payload)
   return data
 }
 
@@ -650,7 +695,10 @@ export const accountsAPI = {
   importData,
   getAntigravityDefaultModelMapping,
   batchClearError,
+  batchClearErrorScoped,
   batchRefresh,
+  batchRefreshScoped,
+  transferAccountsByGroup,
   setPrivacy
 }
 

@@ -20,6 +20,9 @@ func setupAccountMixedChannelRouter(adminSvc *stubAdminService) *gin.Engine {
 	router.POST("/api/v1/admin/accounts", accountHandler.Create)
 	router.PUT("/api/v1/admin/accounts/:id", accountHandler.Update)
 	router.POST("/api/v1/admin/accounts/bulk-update", accountHandler.BulkUpdate)
+	router.POST("/api/v1/admin/accounts/batch-clear-error", accountHandler.BatchClearError)
+	router.POST("/api/v1/admin/accounts/batch-refresh", accountHandler.BatchRefresh)
+	router.POST("/api/v1/admin/accounts/group-transfer", accountHandler.TransferAccountsByGroup)
 	return router
 }
 
@@ -195,4 +198,97 @@ func TestAccountHandlerBulkUpdateMixedChannelConfirmSkips(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, float64(2), data["success"])
 	require.Equal(t, float64(0), data["failed"])
+}
+
+func TestAccountHandlerBatchClearErrorScopeGroupFilters(t *testing.T) {
+	adminSvc := newStubAdminService()
+	adminSvc.accounts = []service.Account{
+		{ID: 1, Name: "a1", Status: service.StatusActive, GroupIDs: []int64{10}},
+		{ID: 2, Name: "a2", Status: service.StatusActive, GroupIDs: []int64{11}},
+		{ID: 3, Name: "a3", Status: service.StatusActive, GroupIDs: []int64{10, 11}},
+	}
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"account_ids":    []int64{1, 2, 3},
+		"scope_group_id": 10,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/batch-clear-error", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(2), data["total"])
+	require.Equal(t, float64(2), data["success"])
+	require.Equal(t, float64(0), data["failed"])
+}
+
+func TestAccountHandlerBatchClearErrorScopeGroupEmptyRejected(t *testing.T) {
+	adminSvc := newStubAdminService()
+	adminSvc.accounts = []service.Account{
+		{ID: 1, Name: "a1", Status: service.StatusActive, GroupIDs: []int64{11}},
+	}
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"account_ids":    []int64{1},
+		"scope_group_id": 10,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/batch-clear-error", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountHandlerTransferAccountsByGroupSuccess(t *testing.T) {
+	adminSvc := newStubAdminService()
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"source_group_id": 10,
+		"target_group_id": 20,
+		"count":           2,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/group-transfer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	data, ok := resp["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(2), data["moved_count"])
+	require.Equal(t, float64(10), data["source_group_id"])
+	require.Equal(t, float64(20), data["target_group_id"])
+}
+
+func TestAccountHandlerBulkUpdatePassesScopeGroupID(t *testing.T) {
+	adminSvc := newStubAdminService()
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"account_ids":    []int64{1, 2},
+		"scope_group_id": 10,
+		"group_ids":      []int64{20},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastBulkUpdateInput)
+	require.NotNil(t, adminSvc.lastBulkUpdateInput.ScopeGroupID)
+	require.Equal(t, int64(10), *adminSvc.lastBulkUpdateInput.ScopeGroupID)
+	require.NotNil(t, adminSvc.lastBulkUpdateInput.GroupIDs)
+	require.Equal(t, []int64{20}, *adminSvc.lastBulkUpdateInput.GroupIDs)
 }

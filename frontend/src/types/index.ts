@@ -894,6 +894,21 @@ export interface CheckMixedChannelResponse {
   details?: MixedChannelWarningDetails
 }
 
+export interface TransferAccountsByGroupRequest {
+  source_group_id: number
+  target_group_id: number
+  count: number
+}
+
+export interface TransferAccountsByGroupResult {
+  source_group_id: number
+  target_group_id: number
+  requested_count: number
+  moved_count: number
+  account_type?: AccountType | string
+  account_ids: number[]
+}
+
 export interface CreateProxyRequest {
   name: string
   protocol: ProxyProtocol

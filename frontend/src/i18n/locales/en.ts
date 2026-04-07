@@ -2197,10 +2197,13 @@ export default {
         clear: 'Clear selection',
         edit: 'Bulk Edit',
         delete: 'Bulk Delete',
+        groupTransfer: 'Group Transfer',
         enableScheduling: 'Enable Scheduling',
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
+        scopeGroup: 'Scope Group',
+        scopeAllSelected: 'All selected accounts',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
@@ -2209,6 +2212,10 @@ export default {
         title: 'Bulk Edit Accounts',
         selectionInfo:
           '{count} account(s) selected. Only checked or filled fields will be updated; others stay unchanged.',
+        scopeGroup: 'Scope Group',
+        scopeGroupHint:
+          'Only accounts that are both selected and belong to this group will be updated. This does not change the write semantics of checked fields below.',
+        scopeAllSelected: 'All selected accounts',
         baseUrlPlaceholder: 'https://api.anthropic.com or https://api.openai.com',
         baseUrlNotice: 'Applies to API Key accounts only; leave empty to keep existing value',
         submit: 'Update Accounts',
@@ -2219,6 +2226,21 @@ export default {
         noSelection: 'Please select accounts to edit',
         noFieldsSelected: 'Select at least one field to update',
         mixedPlatformWarning: 'Selected accounts span multiple platforms ({platforms}). Model mapping presets shown are combined — ensure mappings are appropriate for each platform.'
+      },
+      groupTransfer: {
+        title: 'Account Group Transfer',
+        description:
+          'Move transferable accounts from one group to another by count. Only same-type, healthy, non-rate-limited, and idle accounts can be moved.',
+        sourceGroup: 'Source Group',
+        targetGroup: 'Target Group',
+        count: 'Transfer Count',
+        selectGroups: 'Please select both source and target groups',
+        groupsMustDiffer: 'Source and target groups must be different',
+        invalidCount: 'Please enter a transfer count greater than 0',
+        submit: 'Transfer',
+        transferring: 'Transferring...',
+        success: 'Transferred {count} account(s) successfully',
+        failed: 'Group transfer failed'
       },
       bulkDeleteTitle: 'Bulk Delete Accounts',
       bulkDeleteConfirm: 'Delete the selected {count} account(s)? This action cannot be undone.',

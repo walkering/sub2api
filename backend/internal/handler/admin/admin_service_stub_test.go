@@ -26,6 +26,7 @@ type stubAdminService struct {
 	updateAccountErr     error
 	bulkUpdateAccountErr error
 	checkMixedErr        error
+	lastBulkUpdateInput  *service.BulkUpdateAccountsInput
 	lastMixedCheck       struct {
 		accountID int64
 		platform  string
@@ -199,8 +200,19 @@ func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.A
 func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
 	out := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {
-		account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
-		out = append(out, &account)
+		var matched *service.Account
+		for i := range s.accounts {
+			if s.accounts[i].ID == id {
+				clone := s.accounts[i]
+				matched = &clone
+				break
+			}
+		}
+		if matched == nil {
+			account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
+			matched = &account
+		}
+		out = append(out, matched)
 	}
 	return out, nil
 }
@@ -248,10 +260,22 @@ func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, 
 }
 
 func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *service.BulkUpdateAccountsInput) (*service.BulkUpdateAccountsResult, error) {
+	s.lastBulkUpdateInput = input
 	if s.bulkUpdateAccountErr != nil {
 		return nil, s.bulkUpdateAccountErr
 	}
 	return &service.BulkUpdateAccountsResult{Success: len(input.AccountIDs), Failed: 0, SuccessIDs: input.AccountIDs}, nil
+}
+
+func (s *stubAdminService) TransferAccountsByGroup(ctx context.Context, input *service.TransferAccountsByGroupInput) (*service.TransferAccountsByGroupResult, error) {
+	return &service.TransferAccountsByGroupResult{
+		SourceGroupID:  input.SourceGroupID,
+		TargetGroupID:  input.TargetGroupID,
+		RequestedCount: input.Count,
+		MovedCount:     input.Count,
+		AccountType:    service.AccountTypeOAuth,
+		AccountIDs:     []int64{1, 2},
+	}, nil
 }
 
 func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {

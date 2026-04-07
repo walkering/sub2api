@@ -74,6 +74,7 @@ type AdminService interface {
 	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
+	TransferAccountsByGroup(ctx context.Context, input *TransferAccountsByGroupInput) (*TransferAccountsByGroupResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 
 	// Proxy management
@@ -237,6 +238,7 @@ type UpdateAccountInput struct {
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
 	AccountIDs     []int64
+	ScopeGroupID   *int64
 	Name           string
 	ProxyID        *int64
 	Concurrency    *int
@@ -253,11 +255,30 @@ type BulkUpdateAccountsInput struct {
 	SkipMixedChannelCheck bool
 }
 
+// TransferAccountsByGroupInput describes the payload for moving available accounts
+// from one group to another group by count.
+type TransferAccountsByGroupInput struct {
+	SourceGroupID  int64
+	TargetGroupID  int64
+	Count          int
+	BusyAccountIDs []int64
+}
+
 // BulkUpdateAccountResult captures the result for a single account update.
 type BulkUpdateAccountResult struct {
 	AccountID int64  `json:"account_id"`
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
+}
+
+// TransferAccountsByGroupResult is the aggregated response for group transfer.
+type TransferAccountsByGroupResult struct {
+	SourceGroupID  int64   `json:"source_group_id"`
+	TargetGroupID  int64   `json:"target_group_id"`
+	RequestedCount int     `json:"requested_count"`
+	MovedCount     int     `json:"moved_count"`
+	AccountType    string  `json:"account_type,omitempty"`
+	AccountIDs     []int64 `json:"account_ids"`
 }
 
 // AdminUpdateAPIKeyGroupIDResult is the result of AdminUpdateAPIKeyGroupID.
@@ -1719,13 +1740,25 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
-	result := &BulkUpdateAccountsResult{
-		SuccessIDs: make([]int64, 0, len(input.AccountIDs)),
-		FailedIDs:  make([]int64, 0, len(input.AccountIDs)),
-		Results:    make([]BulkUpdateAccountResult, 0, len(input.AccountIDs)),
+	targetAccountIDs := append([]int64(nil), input.AccountIDs...)
+	if input.ScopeGroupID != nil {
+		filteredIDs, err := s.filterAccountIDsByScopeGroup(ctx, targetAccountIDs, *input.ScopeGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if len(filteredIDs) == 0 {
+			return nil, infraerrors.BadRequest("ACCOUNT_SCOPE_EMPTY", "no selected accounts found in the scope group")
+		}
+		targetAccountIDs = filteredIDs
 	}
 
-	if len(input.AccountIDs) == 0 {
+	result := &BulkUpdateAccountsResult{
+		SuccessIDs: make([]int64, 0, len(targetAccountIDs)),
+		FailedIDs:  make([]int64, 0, len(targetAccountIDs)),
+		Results:    make([]BulkUpdateAccountResult, 0, len(targetAccountIDs)),
+	}
+
+	if len(targetAccountIDs) == 0 {
 		return result, nil
 	}
 	if input.GroupIDs != nil {
@@ -1739,7 +1772,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// 预加载账号平台信息（混合渠道检查需要）。
 	platformByID := map[int64]string{}
 	if needMixedChannelCheck {
-		accounts, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
+		accounts, err := s.accountRepo.GetByIDs(ctx, targetAccountIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -1752,7 +1785,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预检查混合渠道风险：在任何写操作之前，若发现风险立即返回错误。
 	if needMixedChannelCheck {
-		for _, accountID := range input.AccountIDs {
+		for _, accountID := range targetAccountIDs {
 			platform := platformByID[accountID]
 			if platform == "" {
 				continue
@@ -1806,12 +1839,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	// Run bulk update for column/jsonb fields first.
-	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
+	if _, err := s.accountRepo.BulkUpdate(ctx, targetAccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
 
 	// Handle group bindings per account (requires individual operations).
-	for _, accountID := range input.AccountIDs {
+	for _, accountID := range targetAccountIDs {
 		entry := BulkUpdateAccountResult{AccountID: accountID}
 
 		if input.GroupIDs != nil {
@@ -1832,6 +1865,145 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	return result, nil
+}
+
+func (s *adminServiceImpl) TransferAccountsByGroup(ctx context.Context, input *TransferAccountsByGroupInput) (*TransferAccountsByGroupResult, error) {
+	if input == nil {
+		return nil, infraerrors.BadRequest("ACCOUNT_GROUP_TRANSFER_INVALID", "transfer input is required")
+	}
+	if input.SourceGroupID <= 0 || input.TargetGroupID <= 0 {
+		return nil, infraerrors.BadRequest("ACCOUNT_GROUP_TRANSFER_INVALID", "source_group_id and target_group_id must be positive")
+	}
+	if input.SourceGroupID == input.TargetGroupID {
+		return nil, infraerrors.BadRequest("ACCOUNT_GROUP_TRANSFER_INVALID", "source and target groups must be different")
+	}
+	if input.Count <= 0 {
+		return nil, infraerrors.BadRequest("ACCOUNT_GROUP_TRANSFER_INVALID", "count must be greater than 0")
+	}
+
+	if err := s.validateGroupIDsExist(ctx, []int64{input.SourceGroupID, input.TargetGroupID}); err != nil {
+		return nil, err
+	}
+
+	sourceAccounts, err := s.accountRepo.ListByGroup(ctx, input.SourceGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	busyIDs := make(map[int64]struct{}, len(input.BusyAccountIDs))
+	for _, id := range input.BusyAccountIDs {
+		if id > 0 {
+			busyIDs[id] = struct{}{}
+		}
+	}
+
+	candidateIDs := make([]int64, 0, len(sourceAccounts))
+	candidateType := ""
+	for i := range sourceAccounts {
+		account := sourceAccounts[i]
+		if _, busy := busyIDs[account.ID]; busy {
+			continue
+		}
+		if !account.IsActive() || !account.Schedulable {
+			continue
+		}
+		if account.AutoPauseOnExpired && account.ExpiresAt != nil && !now.Before(*account.ExpiresAt) {
+			continue
+		}
+		if account.IsRateLimited() || account.IsOverloaded() {
+			continue
+		}
+		if account.TempUnschedulableUntil != nil && now.Before(*account.TempUnschedulableUntil) {
+			continue
+		}
+
+		if candidateType == "" {
+			candidateType = account.Type
+		} else if candidateType != account.Type {
+			return nil, infraerrors.BadRequest("ACCOUNT_GROUP_TRANSFER_MIXED_TYPES", "only accounts with the same type can be transferred together")
+		}
+
+		candidateIDs = append(candidateIDs, account.ID)
+	}
+
+	if len(candidateIDs) < input.Count {
+		return nil, infraerrors.BadRequest(
+			"ACCOUNT_GROUP_TRANSFER_INSUFFICIENT",
+			fmt.Sprintf("not enough transferable accounts in source group: requested %d, available %d", input.Count, len(candidateIDs)),
+		)
+	}
+
+	movedIDs := append([]int64(nil), candidateIDs[:input.Count]...)
+	targetGroupIDs := []int64{input.TargetGroupID}
+	for _, accountID := range movedIDs {
+		if err := s.accountRepo.BindGroups(ctx, accountID, targetGroupIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	return &TransferAccountsByGroupResult{
+		SourceGroupID:  input.SourceGroupID,
+		TargetGroupID:  input.TargetGroupID,
+		RequestedCount: input.Count,
+		MovedCount:     len(movedIDs),
+		AccountType:    candidateType,
+		AccountIDs:     movedIDs,
+	}, nil
+}
+
+func (s *adminServiceImpl) filterAccountIDsByScopeGroup(ctx context.Context, accountIDs []int64, scopeGroupID int64) ([]int64, error) {
+	if scopeGroupID <= 0 {
+		return append([]int64(nil), accountIDs...), nil
+	}
+
+	accounts, err := s.accountRepo.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	allowed := make(map[int64]struct{}, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		if accountHasGroup(account, scopeGroupID) {
+			allowed[account.ID] = struct{}{}
+		}
+	}
+
+	filtered := make([]int64, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if _, ok := allowed[accountID]; ok {
+			filtered = append(filtered, accountID)
+		}
+	}
+	return filtered, nil
+}
+
+func accountHasGroup(account *Account, groupID int64) bool {
+	if account == nil || groupID <= 0 {
+		return false
+	}
+	for _, id := range account.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	for _, group := range account.Groups {
+		if group != nil && group.ID == groupID {
+			return true
+		}
+	}
+	for _, accountGroup := range account.AccountGroups {
+		if accountGroup.GroupID == groupID {
+			return true
+		}
+		if accountGroup.Group != nil && accountGroup.Group.ID == groupID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {

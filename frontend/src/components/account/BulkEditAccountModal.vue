@@ -21,6 +21,18 @@
         </p>
       </div>
 
+      <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.bulkEdit.scopeGroup') }}</label>
+        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.bulkEdit.scopeGroupHint') }}
+        </p>
+        <Select
+          v-model="scopeGroupValue"
+          data-testid="bulk-edit-scope-group-select"
+          :options="scopeGroupOptions"
+        />
+      </div>
+
       <!-- Mixed platform warning -->
       <div v-if="isMixedPlatform" class="rounded-lg bg-amber-50 p-4 dark:bg-amber-900/20">
         <p class="text-sm text-amber-700 dark:text-amber-400">
@@ -934,6 +946,7 @@ interface Props {
   selectedTypes: AccountType[]
   proxies: ProxyConfig[]
   groups: AdminGroup[]
+  scopeGroupId?: number | null
 }
 
 const props = defineProps<Props>()
@@ -1032,6 +1045,7 @@ const priority = ref(1)
 const rateMultiplier = ref(1)
 const status = ref<'active' | 'inactive'>('active')
 const groupIds = ref<number[]>([])
+const scopeGroupValue = ref<number | ''>(props.scopeGroupId ?? '')
 const openaiPassthroughEnabled = ref(false)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const rpmLimitEnabled = ref(false)
@@ -1059,6 +1073,13 @@ const commonErrorCodes = [
 const statusOptions = computed(() => [
   { value: 'active', label: t('common.active') },
   { value: 'inactive', label: t('common.inactive') }
+])
+const scopeGroupOptions = computed(() => [
+  { value: '', label: t('admin.accounts.bulkEdit.scopeAllSelected') },
+  ...props.groups.map(group => ({
+    value: group.id,
+    label: group.name
+  }))
 ])
 const isOpenAIModelRestrictionDisabled = computed(
   () =>
@@ -1192,6 +1213,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableGroups.value) {
     updates.group_ids = groupIds.value
+  }
+
+  if (scopeGroupValue.value !== '') {
+    updates.scope_group_id = Number(scopeGroupValue.value)
   }
 
   if (enableBaseUrl.value) {
@@ -1453,6 +1478,7 @@ watch(
       rateMultiplier.value = 1
       status.value = 'active'
       groupIds.value = []
+      scopeGroupValue.value = ''
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       rpmLimitEnabled.value = false
       bulkBaseRpm.value = null
@@ -1465,6 +1491,8 @@ watch(
       mixedChannelWarningMessage.value = ''
       pendingUpdatesForConfirm.value = null
       mixedChannelConfirmed.value = false
+    } else {
+      scopeGroupValue.value = props.scopeGroupId ?? ''
     }
   }
 )
