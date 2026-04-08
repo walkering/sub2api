@@ -967,6 +967,15 @@ export default {
       create: 'Create',
       timeRange: 'Time Range',
       granularity: 'Granularity',
+      autoRefresh: 'Auto Refresh',
+      enableAutoRefresh: 'Enable auto refresh',
+      disableAutoRefresh: 'Disable auto refresh',
+      refreshInterval: 'Refresh Interval',
+      refreshInterval15s: '15 seconds',
+      refreshInterval30s: '30 seconds',
+      refreshInterval60s: '60 seconds',
+      autoRefreshCountdown: 'Auto refresh: {seconds}s',
+      drilldownHint: 'Click to view the matching list',
       day: 'Day',
       hour: 'Hour',
       modelDistribution: 'Model Distribution',
@@ -997,6 +1006,25 @@ export default {
       requestsShort: 'Req',
       tokensShort: 'Tok',
       failedToLoad: 'Failed to load dashboard statistics'
+    },
+
+    apiKeys: {
+      title: 'API Keys',
+      description: 'Browse and filter the global API key list',
+      searchPlaceholder: 'Search API key name or user...',
+      allStatus: 'All Status',
+      columns: {
+        name: 'Name',
+        user: 'User',
+        group: 'Group',
+        status: 'Status',
+        createdAt: 'Created At',
+        lastUsedAt: 'Last Used'
+      },
+      status: {
+        quota_exhausted: 'Quota Exhausted',
+        expired: 'Expired'
+      }
     },
 
     backup: {
@@ -1937,6 +1965,7 @@ export default {
       dataExport: 'Export',
       dataExportSelected: 'Export Selected',
       dataExportIncludeProxies: 'Include proxies linked to the exported accounts',
+      dataExportGroupHint: 'Leave groups empty to export all accounts.',
       dataImport: 'Import',
       dataExportConfirmMessage: 'The exported data contains sensitive account and proxy information. Store it securely.',
       dataExportConfirm: 'Confirm Export',
@@ -1944,7 +1973,12 @@ export default {
       dataExportFailed: 'Failed to export data',
       dataImportTitle: 'Import Data',
       dataImportHint: 'Upload the exported JSON file to import accounts and proxies.',
-      dataImportWarning: 'Import will create new accounts/proxies; groups must be bound manually. Ensure existing data does not conflict.',
+      dataImportWarning: 'Import will create new accounts/proxies; accounts will be assigned to the selected group. Ensure existing data does not conflict.',
+      dataImportTargetGroup: 'Target Group',
+      dataImportTargetGroupRequired: 'Required',
+      dataImportTargetGroupPlaceholder: 'Select a target group',
+      dataImportTargetGroupHint: 'Imported accounts will be assigned to this group.',
+      dataImportTargetGroupMissing: 'Please select a target group',
       dataImportFile: 'Data file',
       dataImportButton: 'Start Import',
       dataImporting: 'Importing...',

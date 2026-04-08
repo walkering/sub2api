@@ -230,6 +230,67 @@ func (s *APIKeyRepoSuite) TestListByGroupID() {
 	s.Require().NotNil(keys[0].User)
 }
 
+func (s *APIKeyRepoSuite) TestListWithFilters() {
+	userA := s.mustCreateUser("listwithfilters-a@test.com")
+	userB := s.mustCreateUser("listwithfilters-b@test.com")
+	groupA := s.mustCreateGroup("g-admin-list-a")
+	groupB := s.mustCreateGroup("g-admin-list-b")
+
+	activeGrouped := s.mustCreateApiKey(userA.ID, "sk-admin-alpha", "Alpha Key", &groupA.ID)
+	activeUngrouped := s.mustCreateApiKey(userB.ID, "sk-admin-bravo", "Bravo Key", nil)
+	inactiveGrouped := s.mustCreateApiKey(userA.ID, "sk-admin-charlie", "Charlie Key", &groupB.ID)
+	inactiveGrouped.Status = service.StatusDisabled
+	s.Require().NoError(s.repo.Update(s.ctx, inactiveGrouped))
+
+	keys, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{
+		Status: service.StatusActive,
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(2), page.Total)
+	s.Require().Len(keys, 2)
+	for _, key := range keys {
+		s.Require().Equal(service.StatusActive, key.Status)
+		s.Require().NotNil(key.User, "expected User preload")
+	}
+
+	keys, page, err = s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{
+		Search: "alpha",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(activeGrouped.ID, keys[0].ID)
+	s.Require().NotNil(keys[0].Group, "expected Group preload")
+	s.Require().Equal(groupA.ID, keys[0].Group.ID)
+
+	keys, page, err = s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{
+		Search: "bravo",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(activeUngrouped.ID, keys[0].ID)
+
+	keys, page, err = s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{
+		GroupID: int64Ptr(0),
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(activeUngrouped.ID, keys[0].ID)
+	s.Require().Nil(keys[0].GroupID)
+
+	keys, page, err = s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{
+		GroupID: &groupA.ID,
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(activeGrouped.ID, keys[0].ID)
+	s.Require().NotNil(keys[0].Group)
+	s.Require().Equal(groupA.ID, keys[0].Group.ID)
+}
+
 func (s *APIKeyRepoSuite) TestCountByGroupID() {
 	user := s.mustCreateUser("countgroup@test.com")
 	group := s.mustCreateGroup("g-count")
@@ -515,4 +576,8 @@ func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 	require.NoError(t, err, "GetByID")
 	require.Equal(t, float64(goroutines)*increment, got.QuotaUsed,
 		"并发递增后总和应为 %v，实际为 %v", float64(goroutines)*increment, got.QuotaUsed)
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
 }

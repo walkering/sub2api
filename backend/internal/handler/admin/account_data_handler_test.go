@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,11 @@ import (
 type dataResponse struct {
 	Code int         `json:"code"`
 	Data dataPayload `json:"data"`
+}
+
+type errorResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 type dataPayload struct {
@@ -67,6 +73,10 @@ func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
 		nil,
 	)
 
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
+		c.Next()
+	})
 	router.GET("/api/v1/admin/accounts/data", h.ExportData)
 	router.POST("/api/v1/admin/accounts/data", h.ImportData)
 	return router, adminSvc
@@ -172,6 +182,62 @@ func TestExportDataWithoutProxies(t *testing.T) {
 	require.Nil(t, resp.Data.Accounts[0].ProxyKey)
 }
 
+func TestExportDataWithGroupIDs(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+
+	adminSvc.accounts = []service.Account{
+		{
+			ID:          1,
+			Name:        "account-a",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Credentials: map[string]any{"token": "a"},
+			Concurrency: 1,
+			Priority:    1,
+			GroupIDs:    []int64{10},
+		},
+		{
+			ID:          2,
+			Name:        "account-b",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Credentials: map[string]any{"token": "b"},
+			Concurrency: 1,
+			Priority:    1,
+			GroupIDs:    []int64{20},
+		},
+		{
+			ID:          3,
+			Name:        "account-c",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Credentials: map[string]any{"token": "c"},
+			Concurrency: 1,
+			Priority:    1,
+			GroupIDs:    []int64{10, 20},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/data?group_ids=10", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp dataResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Len(t, resp.Data.Accounts, 2)
+
+	names := map[string]struct{}{}
+	for _, account := range resp.Data.Accounts {
+		names[account.Name] = struct{}{}
+	}
+	_, hasA := names["account-a"]
+	_, hasC := names["account-c"]
+	require.True(t, hasA)
+	require.True(t, hasC)
+}
+
 func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	router, adminSvc := setupAccountDataRouter()
 
@@ -229,4 +295,132 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.Len(t, adminSvc.createdProxies, 0)
 	require.Len(t, adminSvc.createdAccounts, 1)
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
+}
+
+func TestImportDataInvalidTargetGroup(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.getGroupErr = service.ErrGroupNotFound
+
+	dataPayload := map[string]any{
+		"data": map[string]any{
+			"type":    dataType,
+			"version": dataVersion,
+			"proxies": []map[string]any{},
+			"accounts": []map[string]any{
+				{
+					"name":        "acc",
+					"platform":    service.PlatformOpenAI,
+					"type":        service.AccountTypeOAuth,
+					"credentials": map[string]any{"token": "x"},
+					"concurrency": 1,
+					"priority":    1,
+				},
+			},
+		},
+		"target_group_id": int64(999),
+	}
+
+	body, _ := json.Marshal(dataPayload)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Equal(t, "分组无效", resp.Message)
+}
+
+func TestImportDataForbiddenTargetGroup(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.groups = []service.Group{
+		{
+			ID:          9,
+			Name:        "exclusive",
+			Status:      service.StatusActive,
+			IsExclusive: true,
+		},
+	}
+	adminSvc.users = []service.User{
+		{
+			ID:            1,
+			Email:         "user@example.com",
+			Role:          service.RoleUser,
+			Status:        service.StatusActive,
+			AllowedGroups: []int64{},
+		},
+	}
+
+	dataPayload := map[string]any{
+		"data": map[string]any{
+			"type":    dataType,
+			"version": dataVersion,
+			"proxies": []map[string]any{},
+			"accounts": []map[string]any{
+				{
+					"name":        "acc",
+					"platform":    service.PlatformOpenAI,
+					"type":        service.AccountTypeOAuth,
+					"credentials": map[string]any{"token": "x"},
+					"concurrency": 1,
+					"priority":    1,
+				},
+			},
+		},
+		"target_group_id": int64(9),
+	}
+
+	body, _ := json.Marshal(dataPayload)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, http.StatusForbidden, resp.Code)
+	require.Equal(t, "权限不足", resp.Message)
+}
+
+func TestImportDataAssignsTargetGroup(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	adminSvc.groups = []service.Group{
+		{
+			ID:     7,
+			Name:   "target",
+			Status: service.StatusActive,
+		},
+	}
+
+	dataPayload := map[string]any{
+		"data": map[string]any{
+			"type":    dataType,
+			"version": dataVersion,
+			"proxies": []map[string]any{},
+			"accounts": []map[string]any{
+				{
+					"name":        "acc",
+					"platform":    service.PlatformOpenAI,
+					"type":        service.AccountTypeOAuth,
+					"credentials": map[string]any{"token": "x"},
+					"concurrency": 1,
+					"priority":    1,
+				},
+			},
+		},
+		"target_group_id": int64(7),
+	}
+
+	body, _ := json.Marshal(dataPayload)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, []int64{7}, adminSvc.createdAccounts[0].GroupIDs)
 }

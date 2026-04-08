@@ -301,16 +301,24 @@
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
-    <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
+    <ImportDataModal :show="showImportData" :groups="groups" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal :show="showBulkEdit" :account-ids="selIds" :selected-platforms="selPlatforms" :selected-types="selTypes" :proxies="proxies" :groups="groups" :scope-group-id="bulkScopeGroupId" @close="showBulkEdit = false" @updated="handleBulkUpdated" />
     <AccountGroupTransferModal :show="showGroupTransfer" :groups="groups" @close="showGroupTransfer = false" @transferred="handleGroupTransferred" />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
-      <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-        <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
-        <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
-      </label>
+      <div class="space-y-3">
+        <div v-if="selIds.length === 0" class="space-y-2">
+          <GroupSelector v-model="exportGroupIds" :groups="groups" />
+          <div class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.dataExportGroupHint') }}
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
+          <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
+        </label>
+      </div>
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
@@ -321,6 +329,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -332,6 +341,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import GroupSelector from '@/components/common/GroupSelector.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal, AccountGroupTransferModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
@@ -357,6 +367,7 @@ import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
@@ -385,6 +396,7 @@ const showSync = ref(false)
 const showImportData = ref(false)
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
+const exportGroupIds = ref<number[]>([])
 const showBulkEdit = ref(false)
 const showGroupTransfer = ref(false)
 const showTempUnsched = ref(false)
@@ -597,6 +609,13 @@ const toggleColumn = (key: string) => {
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const getSingleQueryValue = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.find((item): item is string => typeof item === 'string' && item.length > 0)
+  }
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
 
 const {
   items: accounts,
@@ -1187,17 +1206,20 @@ const formatExportTimestamp = () => {
 }
 const openExportDataDialog = () => {
   includeProxyOnExport.value = true
+  exportGroupIds.value = []
   showExportDataDialog.value = true
 }
 const handleExportData = async () => {
   if (exportingData.value) return
   exportingData.value = true
   try {
+    const groupIDs = exportGroupIds.value
     const dataPayload = await adminAPI.accounts.exportData(
       selIds.value.length > 0
         ? { ids: selIds.value, includeProxies: includeProxyOnExport.value }
         : {
             includeProxies: includeProxyOnExport.value,
+            ...(groupIDs.length > 0 ? { group_ids: groupIDs } : {}),
             filters: {
               platform: params.platform,
               type: params.type,
@@ -1342,6 +1364,10 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
+  const queryStatus = getSingleQueryValue(route.query.status)
+  if (queryStatus) {
+    params.status = queryStatus
+  }
   load()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])

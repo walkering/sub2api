@@ -236,6 +236,13 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+  const queryApiKeyId = getNumericQueryValue(route.query.api_key_id)
+  const queryAccountId = getNumericQueryValue(route.query.account_id)
+  const queryGroupId = getNumericQueryValue(route.query.group_id)
+  const queryRequestType = getSingleQueryValue(route.query.request_type)
+  const queryBillingType = getNumericQueryValue(route.query.billing_type)
+  const queryBillingMode = getSingleQueryValue(route.query.billing_mode)
+  const queryModel = getSingleQueryValue(route.query.model)
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -247,6 +254,13 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
+    api_key_id: queryApiKeyId,
+    account_id: queryAccountId,
+    group_id: queryGroupId,
+    model: queryModel,
+    request_type: queryRequestType as AdminUsageQueryParams['request_type'],
+    billing_type: queryBillingType,
+    billing_mode: queryBillingMode,
     start_date: startDate.value,
     end_date: endDate.value
   }

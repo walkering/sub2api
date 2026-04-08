@@ -12,10 +12,12 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -202,6 +204,25 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		q = q.Where(dbuser.HasAllowedGroupsWith(
 			dbgroup.NameContainsFold(filters.GroupName),
 		))
+	}
+	if filters.ActivityScope != "" || filters.CreatedScope != "" {
+		dayStart := timezone.Today()
+		nextDay := dayStart.Add(24 * time.Hour)
+
+		if filters.ActivityScope == "today_active" {
+			q = q.Where(
+				dbuser.HasUsageLogsWith(
+					usagelog.CreatedAtGTE(dayStart),
+					usagelog.CreatedAtLT(nextDay),
+				),
+			)
+		}
+		if filters.CreatedScope == "today" {
+			q = q.Where(
+				dbuser.CreatedAtGTE(dayStart),
+				dbuser.CreatedAtLT(nextDay),
+			)
+		}
 	}
 
 	// If attribute filters are specified, we need to filter by user IDs first

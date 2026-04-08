@@ -26,6 +26,7 @@ type stubAdminService struct {
 	updateAccountErr     error
 	bulkUpdateAccountErr error
 	checkMixedErr        error
+	getGroupErr          error
 	lastBulkUpdateInput  *service.BulkUpdateAccountsInput
 	lastMixedCheck       struct {
 		accountID int64
@@ -154,6 +155,15 @@ func (s *stubAdminService) GetAllGroupsByPlatform(ctx context.Context, platform 
 }
 
 func (s *stubAdminService) GetGroup(ctx context.Context, id int64) (*service.Group, error) {
+	if s.getGroupErr != nil {
+		return nil, s.getGroupErr
+	}
+	for i := range s.groups {
+		if s.groups[i].ID == id {
+			clone := s.groups[i]
+			return &clone, nil
+		}
+	}
 	group := service.Group{ID: id, Name: "group", Status: service.StatusActive}
 	return &group, nil
 }
@@ -176,6 +186,33 @@ func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
+func (s *stubAdminService) ListAPIKeys(ctx context.Context, page, pageSize int, filters service.APIKeyListFilters) ([]service.APIKey, int64, error) {
+	filtered := make([]service.APIKey, 0, len(s.apiKeys))
+	search := strings.ToLower(strings.TrimSpace(filters.Search))
+	for _, key := range s.apiKeys {
+		if filters.Status != "" && key.Status != filters.Status {
+			continue
+		}
+		if filters.GroupID != nil {
+			switch {
+			case *filters.GroupID == 0 && key.GroupID != nil:
+				continue
+			case *filters.GroupID > 0 && (key.GroupID == nil || *key.GroupID != *filters.GroupID):
+				continue
+			}
+		}
+		if search != "" {
+			name := strings.ToLower(key.Name)
+			value := strings.ToLower(key.Key)
+			if !strings.Contains(name, search) && !strings.Contains(value, search) {
+				continue
+			}
+		}
+		filtered = append(filtered, key)
+	}
+	return filtered, int64(len(filtered)), nil
+}
+
 func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) ([]service.UserGroupRateEntry, error) {
 	return nil, nil
 }
@@ -189,7 +226,28 @@ func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, _ int
 }
 
 func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, int64, error) {
-	return s.accounts, int64(len(s.accounts)), nil
+	filtered := s.accounts
+	if groupID != 0 {
+		next := make([]service.Account, 0, len(filtered))
+		for _, account := range filtered {
+			if groupID == service.AccountListGroupUngrouped {
+				if len(account.GroupIDs) == 0 {
+					next = append(next, account)
+				}
+				continue
+			}
+			if groupID > 0 {
+				for _, gid := range account.GroupIDs {
+					if gid == groupID {
+						next = append(next, account)
+						break
+					}
+				}
+			}
+		}
+		filtered = next
+	}
+	return filtered, int64(len(filtered)), nil
 }
 
 func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {

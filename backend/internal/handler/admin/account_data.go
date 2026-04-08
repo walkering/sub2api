@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -60,6 +62,7 @@ type DataAccount struct {
 type DataImportRequest struct {
 	Data                 DataPayload `json:"data"`
 	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
+	TargetGroupID        *int64      `json:"target_group_id"`
 }
 
 type DataImportResult struct {
@@ -91,7 +94,13 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 		return
 	}
 
-	accounts, err := h.resolveExportAccounts(ctx, selectedIDs, c)
+	groupIDs, err := parseGroupIDs(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	accounts, err := h.resolveExportAccounts(ctx, selectedIDs, groupIDs, c)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -183,6 +192,42 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
+	if req.TargetGroupID != nil {
+		targetGroupID := *req.TargetGroupID
+		if targetGroupID <= 0 {
+			response.BadRequest(c, "分组无效")
+			return
+		}
+		group, err := h.adminService.GetGroup(ctx, targetGroupID)
+		if err != nil {
+			if errors.Is(err, service.ErrGroupNotFound) {
+				response.BadRequest(c, "分组无效")
+				return
+			}
+			response.ErrorFrom(c, err)
+			return
+		}
+		if group == nil {
+			response.BadRequest(c, "分组无效")
+			return
+		}
+		subject, ok := middleware.GetAuthSubjectFromContext(c)
+		if !ok {
+			response.Unauthorized(c, "User not authenticated")
+			return
+		}
+		user, err := h.adminService.GetUser(ctx, subject.UserID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		if user == nil || !user.CanBindGroup(group.ID, group.IsExclusive) {
+			response.Forbidden(c, "权限不足")
+			return
+		}
+	}
+
 	executeAdminIdempotentJSON(c, "admin.accounts.import_data", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		return h.importData(ctx, req)
 	})
@@ -192,6 +237,10 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 	skipDefaultGroupBind := true
 	if req.SkipDefaultGroupBind != nil {
 		skipDefaultGroupBind = *req.SkipDefaultGroupBind
+	}
+	targetGroupID := int64(0)
+	if req.TargetGroupID != nil {
+		targetGroupID = *req.TargetGroupID
 	}
 
 	dataPayload := req.Data
@@ -316,6 +365,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			AutoPauseOnExpired:   item.AutoPauseOnExpired,
 			SkipDefaultGroupBind: skipDefaultGroupBind,
 		}
+		if targetGroupID > 0 {
+			accountInput.GroupIDs = []int64{targetGroupID}
+		}
 
 		created, err := h.adminService.CreateAccount(ctx, accountInput)
 		if err != nil {
@@ -373,11 +425,15 @@ func (h *AccountHandler) listAllProxies(ctx context.Context) ([]service.Proxy, e
 }
 
 func (h *AccountHandler) listAccountsFiltered(ctx context.Context, platform, accountType, status, search string) ([]service.Account, error) {
+	return h.listAccountsFilteredByGroup(ctx, platform, accountType, status, search, 0)
+}
+
+func (h *AccountHandler) listAccountsFilteredByGroup(ctx context.Context, platform, accountType, status, search string, groupID int64) ([]service.Account, error) {
 	page := 1
 	pageSize := dataPageCap
 	var out []service.Account
 	for {
-		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, 0, "")
+		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, "")
 		if err != nil {
 			return nil, err
 		}
@@ -390,7 +446,7 @@ func (h *AccountHandler) listAccountsFiltered(ctx context.Context, platform, acc
 	return out, nil
 }
 
-func (h *AccountHandler) resolveExportAccounts(ctx context.Context, ids []int64, c *gin.Context) ([]service.Account, error) {
+func (h *AccountHandler) resolveExportAccounts(ctx context.Context, ids []int64, groupIDs []int64, c *gin.Context) ([]service.Account, error) {
 	if len(ids) > 0 {
 		accounts, err := h.adminService.GetAccountsByIDs(ctx, ids)
 		if err != nil {
@@ -413,7 +469,51 @@ func (h *AccountHandler) resolveExportAccounts(ctx context.Context, ids []int64,
 	if len(search) > 100 {
 		search = search[:100]
 	}
+	if len(groupIDs) > 0 {
+		return h.listAccountsByGroupIDs(ctx, groupIDs, platform, accountType, status, search)
+	}
 	return h.listAccountsFiltered(ctx, platform, accountType, status, search)
+}
+
+func (h *AccountHandler) listAccountsByGroupIDs(ctx context.Context, groupIDs []int64, platform, accountType, status, search string) ([]service.Account, error) {
+	if len(groupIDs) == 0 {
+		return []service.Account{}, nil
+	}
+	uniqueGroupIDs := make([]int64, 0, len(groupIDs))
+	seenGroups := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, ok := seenGroups[groupID]; ok {
+			continue
+		}
+		seenGroups[groupID] = struct{}{}
+		uniqueGroupIDs = append(uniqueGroupIDs, groupID)
+	}
+	if len(uniqueGroupIDs) == 0 {
+		return []service.Account{}, nil
+	}
+
+	accountsByID := make(map[int64]service.Account)
+	for _, groupID := range uniqueGroupIDs {
+		accounts, err := h.listAccountsFilteredByGroup(ctx, platform, accountType, status, search, groupID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range accounts {
+			accountsByID[accounts[i].ID] = accounts[i]
+		}
+	}
+
+	out := make([]service.Account, 0, len(accountsByID))
+	for _, account := range accountsByID {
+		out = append(out, account)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ID > out[j].ID
+	})
+	return out, nil
 }
 
 func (h *AccountHandler) resolveExportProxies(ctx context.Context, accounts []service.Account) ([]service.Proxy, error) {
@@ -466,6 +566,35 @@ func parseAccountIDs(c *gin.Context) ([]int64, error) {
 			id, err := strconv.ParseInt(part, 10, 64)
 			if err != nil || id <= 0 {
 				return nil, fmt.Errorf("invalid account id: %s", part)
+			}
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func parseGroupIDs(c *gin.Context) ([]int64, error) {
+	values := c.QueryArray("group_ids")
+	if len(values) == 0 {
+		raw := strings.TrimSpace(c.Query("group_ids"))
+		if raw != "" {
+			values = []string{raw}
+		}
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]int64, 0, len(values))
+	for _, item := range values {
+		for _, part := range strings.Split(item, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil || id <= 0 {
+				return nil, fmt.Errorf("invalid group id: %s", part)
 			}
 			ids = append(ids, id)
 		}

@@ -498,6 +498,7 @@ export async function syncFromCrs(params: {
 
 export async function exportData(options?: {
   ids?: number[]
+  group_ids?: number[]
   filters?: {
     platform?: string
     type?: string
@@ -509,12 +510,17 @@ export async function exportData(options?: {
   const params: Record<string, string> = {}
   if (options?.ids && options.ids.length > 0) {
     params.ids = options.ids.join(',')
-  } else if (options?.filters) {
-    const { platform, type, status, search } = options.filters
-    if (platform) params.platform = platform
-    if (type) params.type = type
-    if (status) params.status = status
-    if (search) params.search = search
+  } else {
+    if (options?.group_ids && options.group_ids.length > 0) {
+      params.group_ids = options.group_ids.join(',')
+    }
+    if (options?.filters) {
+      const { platform, type, status, search } = options.filters
+      if (platform) params.platform = platform
+      if (type) params.type = type
+      if (status) params.status = status
+      if (search) params.search = search
+    }
   }
   if (options?.includeProxies === false) {
     params.include_proxies = 'false'
@@ -526,10 +532,12 @@ export async function exportData(options?: {
 export async function importData(payload: {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
+  target_group_id?: number | null
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
     data: payload.data,
-    skip_default_group_bind: payload.skip_default_group_bind
+    skip_default_group_bind: payload.skip_default_group_bind,
+    ...(payload.target_group_id ? { target_group_id: payload.target_group_id } : {})
   })
   return data
 }

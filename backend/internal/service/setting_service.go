@@ -92,6 +92,19 @@ const gatewayForwardingCacheTTL = 60 * time.Second
 const gatewayForwardingErrorTTL = 5 * time.Second
 const gatewayForwardingDBTimeout = 5 * time.Second
 
+// cachedUngroupedKeyScheduling 缓存未分组 Key 是否允许调度（进程内缓存，60s TTL）
+type cachedUngroupedKeyScheduling struct {
+	value     bool
+	expiresAt int64 // unix nano
+}
+
+var ungroupedKeySchedulingCache atomic.Value // *cachedUngroupedKeyScheduling
+var ungroupedKeySchedulingSF singleflight.Group
+
+const ungroupedKeySchedulingCacheTTL = 60 * time.Second
+const ungroupedKeySchedulingErrorTTL = 5 * time.Second
+const ungroupedKeySchedulingDBTimeout = 5 * time.Second
+
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
 	GetByID(ctx context.Context, id int64) (*Group, error)
@@ -546,6 +559,11 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 			metadataPassthrough:    settings.EnableMetadataPassthrough,
 			cchSigning:             settings.EnableCCHSigning,
 			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+		})
+		ungroupedKeySchedulingSF.Forget("allow_ungrouped_key_scheduling")
+		ungroupedKeySchedulingCache.Store(&cachedUngroupedKeyScheduling{
+			value:     settings.AllowUngroupedKeyScheduling,
+			expiresAt: time.Now().Add(ungroupedKeySchedulingCacheTTL).UnixNano(),
 		})
 		if s.onUpdate != nil {
 			s.onUpdate() // Invalidate cache after settings update
@@ -1414,11 +1432,49 @@ func (s *SettingService) GetStreamTimeoutSettings(ctx context.Context) (*StreamT
 
 // IsUngroupedKeySchedulingAllowed 查询是否允许未分组 Key 调度
 func (s *SettingService) IsUngroupedKeySchedulingAllowed(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyAllowUngroupedKeyScheduling)
-	if err != nil {
-		return false // fail-closed: 查询失败时默认不允许
+	if cached, ok := ungroupedKeySchedulingCache.Load().(*cachedUngroupedKeyScheduling); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.value
+		}
 	}
-	return value == "true"
+	result, _, _ := ungroupedKeySchedulingSF.Do("allow_ungrouped_key_scheduling", func() (any, error) {
+		if cached, ok := ungroupedKeySchedulingCache.Load().(*cachedUngroupedKeyScheduling); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.value, nil
+			}
+		}
+
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ungroupedKeySchedulingDBTimeout)
+		defer cancel()
+
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyAllowUngroupedKeyScheduling)
+		if err != nil {
+			if errors.Is(err, ErrSettingNotFound) {
+				ungroupedKeySchedulingCache.Store(&cachedUngroupedKeyScheduling{
+					value:     false,
+					expiresAt: time.Now().Add(ungroupedKeySchedulingCacheTTL).UnixNano(),
+				})
+				return false, nil
+			}
+			slog.Warn("failed to get allow_ungrouped_key_scheduling setting", "error", err)
+			ungroupedKeySchedulingCache.Store(&cachedUngroupedKeyScheduling{
+				value:     false,
+				expiresAt: time.Now().Add(ungroupedKeySchedulingErrorTTL).UnixNano(),
+			})
+			return false, nil
+		}
+
+		allowed := value == "true"
+		ungroupedKeySchedulingCache.Store(&cachedUngroupedKeyScheduling{
+			value:     allowed,
+			expiresAt: time.Now().Add(ungroupedKeySchedulingCacheTTL).UnixNano(),
+		})
+		return allowed, nil
+	})
+	if allowed, ok := result.(bool); ok {
+		return allowed
+	}
+	return false // fail-closed
 }
 
 // GetClaudeCodeVersionBounds 获取 Claude Code 版本号上下限要求
