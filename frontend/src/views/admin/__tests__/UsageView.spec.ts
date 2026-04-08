@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getModelStats, getById, routeQuery } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -14,7 +14,9 @@ const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
     list: vi.fn(),
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
+    getModelStats: vi.fn(),
     getById: vi.fn(),
+    routeQuery: {} as Record<string, string>,
   }
 })
 
@@ -40,6 +42,7 @@ vi.mock('@/api/admin', () => ({
     },
     dashboard: {
       getSnapshotV2,
+      getModelStats,
     },
     users: {
       getById,
@@ -78,7 +81,7 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
-    query: {}
+    query: routeQuery
   })
 }))
 
@@ -111,7 +114,11 @@ describe('admin UsageView distribution metric toggles', () => {
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
+    getModelStats.mockReset()
     getById.mockReset()
+    Object.keys(routeQuery).forEach((key) => {
+      delete routeQuery[key]
+    })
 
     list.mockResolvedValue({
       items: [],
@@ -132,6 +139,9 @@ describe('admin UsageView distribution metric toggles', () => {
       trend: [],
       models: [],
       groups: [],
+    })
+    getModelStats.mockResolvedValue({
+      models: [],
     })
   })
 
@@ -192,5 +202,85 @@ describe('admin UsageView distribution metric toggles', () => {
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('actual_cost')
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores route query filters before the first usage requests', async () => {
+    Object.assign(routeQuery, {
+      start_date: '2026-04-01',
+      end_date: '2026-04-03',
+      user_id: '12',
+      api_key_id: '34',
+      account_id: '56',
+      group_id: '78',
+      request_type: 'stream',
+      billing_type: '2',
+      billing_mode: 'per_token',
+      model: 'gpt-4.1'
+    })
+
+    mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: true,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: ModelDistributionChartStub,
+          GroupDistributionChart: GroupDistributionChartStub,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      page_size: expect.any(Number),
+      start_date: '2026-04-01',
+      end_date: '2026-04-03',
+      user_id: 12,
+      api_key_id: 34,
+      account_id: 56,
+      group_id: 78,
+      request_type: 'stream',
+      billing_type: 2,
+      billing_mode: 'per_token',
+      model: 'gpt-4.1'
+    }), expect.any(Object))
+
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-04-01',
+      end_date: '2026-04-03',
+      user_id: 12,
+      api_key_id: 34,
+      account_id: 56,
+      group_id: 78,
+      request_type: 'stream',
+      billing_type: 2,
+      billing_mode: 'per_token',
+      model: 'gpt-4.1'
+    }))
+
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-04-01',
+      end_date: '2026-04-03',
+      granularity: 'day',
+      user_id: 12,
+      api_key_id: 34,
+      account_id: 56,
+      group_id: 78,
+      request_type: 'stream',
+      billing_type: 2,
+      model: 'gpt-4.1'
+    }))
   })
 })

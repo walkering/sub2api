@@ -975,6 +975,7 @@ export default {
       refreshInterval30s: '30 seconds',
       refreshInterval60s: '60 seconds',
       autoRefreshCountdown: 'Auto refresh: {seconds}s',
+      drilldownHint: 'Click to view the matching list',
       day: 'Day',
       hour: 'Hour',
       modelDistribution: 'Model Distribution',
@@ -1005,6 +1006,25 @@ export default {
       requestsShort: 'Req',
       tokensShort: 'Tok',
       failedToLoad: 'Failed to load dashboard statistics'
+    },
+
+    apiKeys: {
+      title: 'API Keys',
+      description: 'Browse and filter the global API key list',
+      searchPlaceholder: 'Search API key name or user...',
+      allStatus: 'All Status',
+      columns: {
+        name: 'Name',
+        user: 'User',
+        group: 'Group',
+        status: 'Status',
+        createdAt: 'Created At',
+        lastUsedAt: 'Last Used'
+      },
+      status: {
+        quota_exhausted: 'Quota Exhausted',
+        expired: 'Expired'
+      }
     },
 
     backup: {

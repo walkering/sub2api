@@ -988,6 +988,7 @@ export default {
       refreshInterval30s: '30 秒',
       refreshInterval60s: '60 秒',
       autoRefreshCountdown: '自动刷新：{seconds}s',
+      drilldownHint: '点击查看对应列表',
       day: '按天',
       hour: '按小时',
       modelDistribution: '模型分布',
@@ -1027,6 +1028,25 @@ export default {
       systemSettings: '系统设置',
       configureSystem: '配置系统设置',
       failedToLoad: '加载仪表盘数据失败'
+    },
+
+    apiKeys: {
+      title: 'API 密钥管理',
+      description: '查看和筛选全局 API 密钥列表',
+      searchPlaceholder: '搜索 API 密钥名称或用户...',
+      allStatus: '全部状态',
+      columns: {
+        name: '名称',
+        user: '用户',
+        group: '分组',
+        status: '状态',
+        createdAt: '创建时间',
+        lastUsedAt: '最近使用'
+      },
+      status: {
+        quota_exhausted: '额度耗尽',
+        expired: '已过期'
+      }
     },
 
     backup: {

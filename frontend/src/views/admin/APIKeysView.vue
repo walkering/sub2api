@@ -92,7 +92,7 @@
 
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-gray-400">
-              {{ value ? formatRelativeTime(value) : t('common.never') }}
+              {{ value ? formatRelativeTime(value) : t('common.time.never') }}
             </span>
           </template>
         </DataTable>
@@ -207,7 +207,7 @@ const getStatusLabel = (status: string) => {
   return t(`admin.apiKeys.status.${status}`)
 }
 
-let searchTimeout: ReturnType<typeof setTimeout> | undefined
+let searchTimeout: number | undefined
 
 const handleSearch = () => {
   if (searchTimeout) {

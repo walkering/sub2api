@@ -6,7 +6,14 @@ import DashboardView from '../DashboardView.vue'
 
 const DASHBOARD_AUTO_REFRESH_STORAGE_KEY = 'admin.dashboard.auto_refresh'
 
-const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking, localStorageMock, localStorageState } = vi.hoisted(() => {
+const {
+  getSnapshotV2,
+  getUserUsageTrend,
+  getUserSpendingRanking,
+  localStorageMock,
+  localStorageState,
+  routerPush
+} = vi.hoisted(() => {
   const storage = new Map<string, string>()
   const localStorageMock = {
     getItem: vi.fn((key: string) => storage.get(key) ?? null),
@@ -26,7 +33,8 @@ const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking, localStorageMo
     getUserUsageTrend: vi.fn(),
     getUserSpendingRanking: vi.fn(),
     localStorageMock,
-    localStorageState: storage
+    localStorageState: storage,
+    routerPush: vi.fn()
   }
 })
 
@@ -60,7 +68,7 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
-    push: vi.fn()
+    push: routerPush
   })
 }))
 
@@ -173,6 +181,7 @@ describe('admin DashboardView', () => {
     getSnapshotV2.mockReset()
     getUserUsageTrend.mockReset()
     getUserSpendingRanking.mockReset()
+    routerPush.mockReset()
 
     getSnapshotV2.mockResolvedValue(createSnapshotResponse())
     getUserUsageTrend.mockResolvedValue({
@@ -308,5 +317,62 @@ describe('admin DashboardView', () => {
     await flushPromises()
 
     expect(getSnapshotV2).toHaveBeenCalledTimes(3)
+  })
+
+  it('navigates metric drilldowns to the expected filtered admin pages', async () => {
+    const wrapper = mountDashboardView()
+    await flushPromises()
+
+    const today = formatLocalDate(new Date())
+
+    await wrapper.get('[data-test="dashboard-total-api-keys"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-active-api-keys"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-total-accounts"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-normal-accounts"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-error-accounts"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-today-requests"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-today-new-users"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-total-users"]').trigger('click')
+    await wrapper.get('[data-test="dashboard-active-users"]').trigger('click')
+
+    expect(routerPush).toHaveBeenNthCalledWith(1, {
+      path: '/admin/api-keys',
+      query: {}
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(2, {
+      path: '/admin/api-keys',
+      query: { status: 'active' }
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(3, {
+      path: '/admin/accounts',
+      query: {}
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(4, {
+      path: '/admin/accounts',
+      query: { status: 'active' }
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(5, {
+      path: '/admin/accounts',
+      query: { status: 'error' }
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(6, {
+      path: '/admin/usage',
+      query: {
+        start_date: today,
+        end_date: today
+      }
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(7, {
+      path: '/admin/users',
+      query: { created_scope: 'today' }
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(8, {
+      path: '/admin/users',
+      query: {}
+    })
+    expect(routerPush).toHaveBeenNthCalledWith(9, {
+      path: '/admin/users',
+      query: { activity_scope: 'today_active' }
+    })
   })
 })
