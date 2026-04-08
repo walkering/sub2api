@@ -377,6 +377,50 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
 }
 
+func (r *apiKeyRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters service.APIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
+	q := r.activeQuery()
+
+	if filters.Search != "" {
+		q = q.Where(apikey.Or(
+			apikey.NameContainsFold(filters.Search),
+			apikey.KeyContainsFold(filters.Search),
+		))
+	}
+	if filters.Status != "" {
+		q = q.Where(apikey.StatusEQ(filters.Status))
+	}
+	if filters.GroupID != nil {
+		if *filters.GroupID == 0 {
+			q = q.Where(apikey.GroupIDIsNil())
+		} else {
+			q = q.Where(apikey.GroupIDEQ(*filters.GroupID))
+		}
+	}
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keys, err := q.
+		WithUser().
+		WithGroup().
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		Order(dbent.Desc(apikey.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outKeys := make([]service.APIKey, 0, len(keys))
+	for i := range keys {
+		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
+	}
+
+	return outKeys, paginationResultFromTotal(int64(total), params), nil
+}
+
 // SearchAPIKeys searches API keys by user ID and/or keyword (name)
 func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]service.APIKey, error) {
 	q := r.activeQuery()

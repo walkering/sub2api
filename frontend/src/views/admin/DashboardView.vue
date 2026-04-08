@@ -19,12 +19,24 @@
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.apiKeys') }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
+                <button
+                  type="button"
+                  class="metric-link text-xl font-bold text-gray-900 dark:text-white"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-total-api-keys"
+                  @click="goToAPIKeys()"
+                >
                   {{ stats.total_api_keys }}
-                </p>
-                <p class="text-xs text-green-600 dark:text-green-400">
+                </button>
+                <button
+                  type="button"
+                  class="submetric-link text-xs text-green-600 dark:text-green-400"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-active-api-keys"
+                  @click="goToAPIKeys({ status: 'active' })"
+                >
                   {{ stats.active_api_keys }} {{ t('common.active') }}
-                </p>
+                </button>
               </div>
             </div>
           </div>
@@ -39,16 +51,34 @@
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.accounts') }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
+                <button
+                  type="button"
+                  class="metric-link text-xl font-bold text-gray-900 dark:text-white"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-total-accounts"
+                  @click="goToAccounts()"
+                >
                   {{ stats.total_accounts }}
-                </p>
+                </button>
                 <p class="text-xs">
-                  <span class="text-green-600 dark:text-green-400"
-                    >{{ stats.normal_accounts }} {{ t('common.active') }}</span
+                  <button
+                    type="button"
+                    class="submetric-link text-green-600 dark:text-green-400"
+                    :title="t('admin.dashboard.drilldownHint')"
+                    data-test="dashboard-normal-accounts"
+                    @click="goToAccounts({ status: 'active' })"
                   >
-                  <span v-if="stats.error_accounts > 0" class="ml-1 text-red-500"
-                    >{{ stats.error_accounts }} {{ t('common.error') }}</span
+                    {{ stats.normal_accounts }} {{ t('common.active') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="submetric-link ml-1 text-red-500"
+                    :title="t('admin.dashboard.drilldownHint')"
+                    data-test="dashboard-error-accounts"
+                    @click="goToAccounts({ status: 'error' })"
                   >
+                    {{ stats.error_accounts }} {{ t('common.error') }}
+                  </button>
                 </p>
               </div>
             </div>
@@ -64,9 +94,15 @@
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.todayRequests') }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
+                <button
+                  type="button"
+                  class="metric-link text-xl font-bold text-gray-900 dark:text-white"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-today-requests"
+                  @click="goToTodayUsage()"
+                >
                   {{ stats.today_requests }}
-                </p>
+                </button>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('common.total') }}: {{ formatNumber(stats.total_requests) }}
                 </p>
@@ -84,12 +120,24 @@
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.users') }}
                 </p>
-                <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                <button
+                  type="button"
+                  class="metric-link text-xl font-bold text-emerald-600 dark:text-emerald-400"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-today-new-users"
+                  @click="goToUsers({ created_scope: 'today' })"
+                >
                   +{{ stats.today_new_users }}
-                </p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
+                </button>
+                <button
+                  type="button"
+                  class="submetric-link text-xs text-gray-500 dark:text-gray-400"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-total-users"
+                  @click="goToUsers()"
+                >
                   {{ t('common.total') }}: {{ formatNumber(stats.total_users) }}
-                </p>
+                </button>
               </div>
             </div>
           </div>
@@ -196,9 +244,15 @@
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
                   {{ formatDuration(stats.average_duration_ms) }}
                 </p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
+                <button
+                  type="button"
+                  class="submetric-link text-xs text-gray-500 dark:text-gray-400"
+                  :title="t('admin.dashboard.drilldownHint')"
+                  data-test="dashboard-active-users"
+                  @click="goToUsers({ activity_scope: 'today_active' })"
+                >
                   {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
-                </p>
+                </button>
               </div>
             </div>
           </div>
@@ -613,6 +667,38 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
   })
 }
 
+const goToUsers = (query: Record<string, string> = {}) => {
+  void router.push({
+    path: '/admin/users',
+    query
+  })
+}
+
+const goToAPIKeys = (query: Record<string, string> = {}) => {
+  void router.push({
+    path: '/admin/api-keys',
+    query
+  })
+}
+
+const goToAccounts = (query: Record<string, string> = {}) => {
+  void router.push({
+    path: '/admin/accounts',
+    query
+  })
+}
+
+const goToTodayUsage = () => {
+  const today = formatLocalDate(new Date())
+  void router.push({
+    path: '/admin/usage',
+    query: {
+      start_date: today,
+      end_date: today
+    }
+  })
+}
+
 const getLocalStorage = (): Storage | null => {
   if (typeof window === 'undefined') {
     return null
@@ -901,4 +987,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.metric-link,
+.submetric-link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.metric-link:hover,
+.submetric-link:hover {
+  opacity: 0.8;
+}
+
+.metric-link:focus-visible,
+.submetric-link:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 0.5);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
 </style>

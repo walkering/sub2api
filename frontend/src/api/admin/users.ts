@@ -22,6 +22,8 @@ export async function list(
     role?: 'admin' | 'user'
     search?: string
     group_name?: string         // fuzzy filter by allowed group name
+    activity_scope?: string
+    created_scope?: string
     attributes?: Record<number, string>  // attributeId -> value
     include_subscriptions?: boolean
   },
@@ -37,6 +39,8 @@ export async function list(
     role: filters?.role,
     search: filters?.search,
     group_name: filters?.group_name,
+    activity_scope: filters?.activity_scope,
+    created_scope: filters?.created_scope,
     include_subscriptions: filters?.include_subscriptions
   }
 

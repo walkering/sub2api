@@ -26,6 +26,7 @@ func (s *UserRepoSuite) SetupTest() {
 	s.repo = newUserRepositoryWithSQL(s.client, integrationDB)
 
 	// 清理测试数据，确保每个测试从干净状态开始
+	_, _ = integrationDB.ExecContext(s.ctx, "DELETE FROM usage_logs")
 	_, _ = integrationDB.ExecContext(s.ctx, "DELETE FROM user_subscriptions")
 	_, _ = integrationDB.ExecContext(s.ctx, "DELETE FROM user_allowed_groups")
 	_, _ = integrationDB.ExecContext(s.ctx, "DELETE FROM users")
@@ -250,6 +251,65 @@ func (s *UserRepoSuite) TestListWithFilters_CombinedFilters() {
 	s.Require().Equal(int64(1), page.Total, "ListWithFilters total mismatch")
 	s.Require().Len(users, 1, "ListWithFilters len mismatch")
 	s.Require().Equal(target.ID, users[0].ID, "ListWithFilters result mismatch")
+}
+
+func (s *UserRepoSuite) TestListWithFilters_TodayActiveUsers() {
+	now := time.Now()
+	activeUser := s.mustCreateUser(&service.User{Email: "active-today@test.com"})
+	inactiveUser := s.mustCreateUser(&service.User{Email: "inactive-today@test.com"})
+
+	_, err := s.client.UsageLog.Create().
+		SetUserID(activeUser.ID).
+		SetAPIKeyID(0).
+		SetGroupID(0).
+		SetModelName("gpt-4o-mini").
+		SetRequestCount(1).
+		SetTokenCount(10).
+		SetCost(0.01).
+		SetStatusCode(200).
+		SetCreatedAt(now).
+		Save(s.ctx)
+	s.Require().NoError(err)
+
+	_, err = s.client.UsageLog.Create().
+		SetUserID(inactiveUser.ID).
+		SetAPIKeyID(0).
+		SetGroupID(0).
+		SetModelName("gpt-4o-mini").
+		SetRequestCount(1).
+		SetTokenCount(10).
+		SetCost(0.01).
+		SetStatusCode(200).
+		SetCreatedAt(now.Add(-48 * time.Hour)).
+		Save(s.ctx)
+	s.Require().NoError(err)
+
+	users, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.UserListFilters{
+		ActivityScope: "today_active",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(users, 1)
+	s.Require().Equal(activeUser.ID, users[0].ID)
+}
+
+func (s *UserRepoSuite) TestListWithFilters_TodayCreatedUsers() {
+	now := time.Now()
+	todayUser := s.mustCreateUser(&service.User{Email: "today-created@test.com"})
+	yesterdayUser := s.mustCreateUser(&service.User{Email: "yesterday-created@test.com"})
+
+	_, err := s.client.User.UpdateOneID(todayUser.ID).SetCreatedAt(now).Save(s.ctx)
+	s.Require().NoError(err)
+	_, err = s.client.User.UpdateOneID(yesterdayUser.ID).SetCreatedAt(now.Add(-48 * time.Hour)).Save(s.ctx)
+	s.Require().NoError(err)
+
+	users, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.UserListFilters{
+		CreatedScope: "today",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(users, 1)
+	s.Require().Equal(todayUser.ID, users[0].ID)
 }
 
 // --- Balance operations ---

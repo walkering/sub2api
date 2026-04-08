@@ -186,6 +186,33 @@ func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
+func (s *stubAdminService) ListAPIKeys(ctx context.Context, page, pageSize int, filters service.APIKeyListFilters) ([]service.APIKey, int64, error) {
+	filtered := make([]service.APIKey, 0, len(s.apiKeys))
+	search := strings.ToLower(strings.TrimSpace(filters.Search))
+	for _, key := range s.apiKeys {
+		if filters.Status != "" && key.Status != filters.Status {
+			continue
+		}
+		if filters.GroupID != nil {
+			switch {
+			case *filters.GroupID == 0 && key.GroupID != nil:
+				continue
+			case *filters.GroupID > 0 && (key.GroupID == nil || *key.GroupID != *filters.GroupID):
+				continue
+			}
+		}
+		if search != "" {
+			name := strings.ToLower(key.Name)
+			value := strings.ToLower(key.Key)
+			if !strings.Contains(name, search) && !strings.Contains(value, search) {
+				continue
+			}
+		}
+		filtered = append(filtered, key)
+	}
+	return filtered, int64(len(filtered)), nil
+}
+
 func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) ([]service.UserGroupRateEntry, error) {
 	return nil, nil
 }

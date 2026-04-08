@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -25,6 +26,43 @@ func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandle
 // AdminUpdateAPIKeyGroupRequest represents the request to update an API key's group
 type AdminUpdateAPIKeyGroupRequest struct {
 	GroupID *int64 `json:"group_id"` // nil=不修改, 0=解绑, >0=绑定到目标分组
+}
+
+// List handles listing API keys for admin use.
+// GET /api/v1/admin/api-keys
+func (h *AdminAPIKeyHandler) List(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+
+	search := strings.TrimSpace(c.Query("search"))
+	if runes := []rune(search); len(runes) > 100 {
+		search = string(runes[:100])
+	}
+
+	filters := service.APIKeyListFilters{
+		Search: search,
+		Status: strings.TrimSpace(c.Query("status")),
+	}
+
+	if rawGroupID, ok := c.GetQuery("group_id"); ok {
+		groupID, err := strconv.ParseInt(rawGroupID, 10, 64)
+		if err != nil || groupID < 0 {
+			response.BadRequest(c, "Invalid group_id")
+			return
+		}
+		filters.GroupID = &groupID
+	}
+
+	keys, total, err := h.adminService.ListAPIKeys(c.Request.Context(), page, pageSize, filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	out := make([]dto.APIKey, 0, len(keys))
+	for i := range keys {
+		out = append(out, *dto.APIKeyFromService(&keys[i]))
+	}
+	response.Paginated(c, out, total, page, pageSize)
 }
 
 // UpdateGroup handles updating an API key's group binding

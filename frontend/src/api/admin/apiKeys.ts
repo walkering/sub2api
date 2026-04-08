@@ -4,7 +4,34 @@
  */
 
 import { apiClient } from '../client'
-import type { ApiKey } from '@/types'
+import type { ApiKey, PaginatedResponse } from '@/types'
+
+export interface APIKeyListFilters {
+  search?: string
+  status?: string
+  group_id?: number
+}
+
+export async function list(
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: APIKeyListFilters,
+  options?: {
+    signal?: AbortSignal
+  }
+): Promise<PaginatedResponse<ApiKey>> {
+  const { data } = await apiClient.get<PaginatedResponse<ApiKey>>('/admin/api-keys', {
+    params: {
+      page,
+      page_size: pageSize,
+      search: filters?.search,
+      status: filters?.status,
+      group_id: filters?.group_id
+    },
+    signal: options?.signal
+  })
+  return data
+}
 
 export interface UpdateApiKeyGroupResult {
   api_key: ApiKey
@@ -27,6 +54,7 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
 }
 
 export const apiKeysAPI = {
+  list,
   updateApiKeyGroup
 }
 

@@ -599,6 +599,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatDateTime } from '@/utils/format'
@@ -628,6 +629,7 @@ import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryM
 import GroupReplaceModal from '@/components/admin/user/GroupReplaceModal.vue'
 
 const appStore = useAppStore()
+const route = useRoute()
 
 // Generate dynamic attribute columns from enabled definitions
 const attributeColumns = computed<Column[]>(() =>
@@ -774,6 +776,8 @@ const columns = computed<Column[]>(() =>
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
+const routeActivityScope = ref<string | undefined>()
+const routeCreatedScope = ref<string | undefined>()
 
 // Groups data for the groups column
 const allGroups = ref<AdminGroup[]>([])
@@ -873,6 +877,41 @@ const loadSavedFilters = () => {
   } catch (e) {
     console.error('Failed to load saved filters:', e)
   }
+}
+
+const getSingleQueryValue = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.find((item): item is string => typeof item === 'string' && item.length > 0)
+  }
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+const applyRouteQueryFilters = () => {
+  const search = getSingleQueryValue(route.query.search)
+  const role = getSingleQueryValue(route.query.role)
+  const status = getSingleQueryValue(route.query.status)
+  const groupName = getSingleQueryValue(route.query.group_name)
+  const activityScope = getSingleQueryValue(route.query.activity_scope)
+  const createdScope = getSingleQueryValue(route.query.created_scope)
+
+  if (search) {
+    searchQuery.value = search
+  }
+  if (role) {
+    filters.role = role
+    visibleFilters.add('role')
+  }
+  if (status) {
+    filters.status = status
+    visibleFilters.add('status')
+  }
+  if (groupName) {
+    filters.group = groupName
+    visibleFilters.add('group')
+  }
+
+  routeActivityScope.value = activityScope
+  routeCreatedScope.value = createdScope
 }
 
 // Save filters to localStorage
@@ -1124,6 +1163,8 @@ const loadUsers = async () => {
         status: filters.status as any,
         search: searchQuery.value || undefined,
         group_name: filters.group || undefined,
+        activity_scope: routeActivityScope.value,
+        created_scope: routeCreatedScope.value,
         attributes: Object.keys(attrFilters).length > 0 ? attrFilters : undefined,
         include_subscriptions: hasVisibleSubscriptionsColumn.value
       },
@@ -1356,9 +1397,10 @@ const handleScroll = () => {
 onMounted(async () => {
   await loadAttributeDefinitions()
   loadSavedFilters()
+  applyRouteQueryFilters()
   loadSavedColumns()
   loadUsers()
-  if (hasVisibleGroupsColumn.value || visibleFilters.has('group')) {
+  if (hasVisibleGroupsColumn.value || visibleFilters.has('group') || !!filters.group) {
     loadAllGroups()
   }
   document.addEventListener('click', handleClickOutside)

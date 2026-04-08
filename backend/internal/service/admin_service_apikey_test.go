@@ -159,6 +159,38 @@ func (s *apiKeyRepoStubForGroupUpdate) GetRateLimitData(context.Context, int64) 
 	panic("unexpected")
 }
 
+type apiKeyRepoStubForAdminList struct {
+	apiKeyRepoStubForGroupUpdate
+
+	listWithFiltersCalls  int
+	listWithFiltersParams pagination.PaginationParams
+	listWithFiltersFilter APIKeyListFilters
+	listWithFiltersKeys   []APIKey
+	listWithFiltersResult *pagination.PaginationResult
+	listWithFiltersErr    error
+}
+
+func (s *apiKeyRepoStubForAdminList) ListWithFilters(_ context.Context, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+	s.listWithFiltersCalls++
+	s.listWithFiltersParams = params
+	s.listWithFiltersFilter = filters
+
+	if s.listWithFiltersErr != nil {
+		return nil, nil, s.listWithFiltersErr
+	}
+
+	result := s.listWithFiltersResult
+	if result == nil {
+		result = &pagination.PaginationResult{
+			Total:    int64(len(s.listWithFiltersKeys)),
+			Page:     params.Page,
+			PageSize: params.PageSize,
+		}
+	}
+
+	return append([]APIKey(nil), s.listWithFiltersKeys...), result, nil
+}
+
 // groupRepoStubForGroupUpdate implements GroupRepository for AdminUpdateAPIKeyGroupID tests.
 type groupRepoStubForGroupUpdate struct {
 	group          *Group
@@ -506,4 +538,41 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_Unbind_NoAllowedGroupUpdate(t *te
 	// 解绑时不修改 allowed_groups
 	require.False(t, userRepo.addGroupCalled)
 	require.False(t, got.AutoGrantedGroupAccess)
+}
+
+func TestAdminService_ListAPIKeys(t *testing.T) {
+	t.Run("returns list and forwards filters", func(t *testing.T) {
+		groupID := int64(9)
+		repo := &apiKeyRepoStubForAdminList{
+			listWithFiltersKeys: []APIKey{
+				{ID: 1, Key: "sk-live", Name: "Live Key", Status: StatusActive, GroupID: &groupID},
+			},
+			listWithFiltersResult: &pagination.PaginationResult{Total: 8},
+		}
+		svc := &adminServiceImpl{apiKeyRepo: repo}
+
+		keys, total, err := svc.ListAPIKeys(context.Background(), 2, 50, APIKeyListFilters{
+			Search:  "live",
+			Status:  StatusActive,
+			GroupID: &groupID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(8), total)
+		require.Len(t, keys, 1)
+		require.Equal(t, "sk-live", keys[0].Key)
+		require.Equal(t, 1, repo.listWithFiltersCalls)
+		require.Equal(t, pagination.PaginationParams{Page: 2, PageSize: 50}, repo.listWithFiltersParams)
+		require.Equal(t, "live", repo.listWithFiltersFilter.Search)
+		require.Equal(t, StatusActive, repo.listWithFiltersFilter.Status)
+		require.NotNil(t, repo.listWithFiltersFilter.GroupID)
+		require.Equal(t, groupID, *repo.listWithFiltersFilter.GroupID)
+	})
+
+	t.Run("returns error when admin list reader is unavailable", func(t *testing.T) {
+		svc := &adminServiceImpl{apiKeyRepo: &apiKeyRepoStubForGroupUpdate{}}
+
+		_, _, err := svc.ListAPIKeys(context.Background(), 1, 20, APIKeyListFilters{})
+		require.Error(t, err)
+		require.Equal(t, "API_KEY_LIST_REPOSITORY_UNAVAILABLE", infraerrors.Reason(err))
+	})
 }

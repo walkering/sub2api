@@ -19,8 +19,78 @@ func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	h := NewAdminAPIKeyHandler(adminSvc)
+	router.GET("/api/v1/admin/api-keys", h.List)
 	router.PUT("/api/v1/admin/api-keys/:id", h.UpdateGroup)
 	return router
+}
+
+func TestAdminAPIKeyHandler_List_DefaultPagination(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/api-keys", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []struct {
+				ID int64 `json:"id"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+			Page  int   `json:"page"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Len(t, resp.Data.Items, 1)
+	require.Equal(t, int64(1), resp.Data.Total)
+	require.Equal(t, 1, resp.Data.Page)
+}
+
+func TestAdminAPIKeyHandler_List_StatusFilter(t *testing.T) {
+	svc := newStubAdminService()
+	groupID := int64(2)
+	svc.apiKeys = append(svc.apiKeys,
+		service.APIKey{ID: 11, UserID: 1, Key: "sk-disabled", Name: "Disabled", Status: service.StatusDisabled, GroupID: &groupID},
+		service.APIKey{ID: 12, UserID: 1, Key: "sk-active", Name: "Active 2", Status: service.StatusActive},
+	)
+	router := setupAPIKeyHandler(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/api-keys?status=active", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data struct {
+			Items []struct {
+				ID     int64  `json:"id"`
+				Status string `json:"status"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Items, 2)
+	require.Equal(t, int64(2), resp.Data.Total)
+	for _, item := range resp.Data.Items {
+		require.Equal(t, service.StatusActive, item.Status)
+	}
+}
+
+func TestAdminAPIKeyHandler_List_InvalidGroupID(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/api-keys?group_id=abc", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Invalid group_id")
 }
 
 func TestAdminAPIKeyHandler_UpdateGroup_InvalidID(t *testing.T) {

@@ -329,6 +329,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -366,6 +367,7 @@ import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
@@ -607,6 +609,13 @@ const toggleColumn = (key: string) => {
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const getSingleQueryValue = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.find((item): item is string => typeof item === 'string' && item.length > 0)
+  }
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
 
 const {
   items: accounts,
@@ -1355,6 +1364,10 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
+  const queryStatus = getSingleQueryValue(route.query.status)
+  if (queryStatus) {
+    params.status = queryStatus
+  }
   load()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])

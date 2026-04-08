@@ -49,6 +49,7 @@ type AdminService interface {
 	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
 
 	// API Key management (admin)
+	ListAPIKeys(ctx context.Context, page, pageSize int, filters APIKeyListFilters) ([]APIKey, int64, error)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
@@ -394,6 +395,10 @@ type ProxyExitInfoProber interface {
 
 type groupExistenceBatchReader interface {
 	ExistsByIDs(ctx context.Context, ids []int64) (map[int64]bool, error)
+}
+
+type adminAPIKeyListReader interface {
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
 }
 
 type proxyQualityTarget struct {
@@ -1275,6 +1280,20 @@ func (s *adminServiceImpl) DeleteGroup(ctx context.Context, id int64) error {
 func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
 	keys, result, err := s.apiKeyRepo.ListByGroupID(ctx, groupID, params)
+	if err != nil {
+		return nil, 0, err
+	}
+	return keys, result.Total, nil
+}
+
+func (s *adminServiceImpl) ListAPIKeys(ctx context.Context, page, pageSize int, filters APIKeyListFilters) ([]APIKey, int64, error) {
+	reader, ok := s.apiKeyRepo.(adminAPIKeyListReader)
+	if !ok {
+		return nil, 0, infraerrors.InternalServer("API_KEY_LIST_REPOSITORY_UNAVAILABLE", "api key list repository is not configured")
+	}
+
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
+	keys, result, err := reader.ListWithFilters(ctx, params, filters)
 	if err != nil {
 		return nil, 0, err
 	}
