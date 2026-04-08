@@ -135,7 +135,6 @@ type UpdateAccountRequest struct {
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
 	AccountIDs              []int64        `json:"account_ids" binding:"required,min=1"`
-	ScopeGroupID            *int64         `json:"scope_group_id"`
 	Name                    string         `json:"name"`
 	ProxyID                 *int64         `json:"proxy_id"`
 	Concurrency             *int           `json:"concurrency"`
@@ -1475,7 +1474,6 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
 		AccountIDs:            req.AccountIDs,
-		ScopeGroupID:          req.ScopeGroupID,
 		Name:                  req.Name,
 		ProxyID:               req.ProxyID,
 		Concurrency:           req.Concurrency,

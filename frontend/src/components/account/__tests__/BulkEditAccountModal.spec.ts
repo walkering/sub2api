@@ -232,37 +232,4 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.text()).toContain('admin.accounts.openai.modelRestrictionDisabledByPassthrough')
   })
 
-  it('提交批量编辑时应携带 scope_group_id', async () => {
-    const wrapper = mountModal({
-      scopeGroupId: 10
-    })
-
-    await wrapper.get('#bulk-edit-status-enabled').setValue(true)
-    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
-      scope_group_id: 10,
-      status: 'active'
-    })
-  })
-
-  it('scope_group_id 与 group_ids 同时存在时都应保留', async () => {
-    const wrapper = mountModal({
-      scopeGroupId: 10,
-      groups: [{ id: 99, name: 'Target Group' }]
-    })
-
-    await wrapper.get('#bulk-edit-groups-enabled').setValue(true)
-    await wrapper.get('[data-testid="group-selector-set"]').trigger('click')
-    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
-    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
-      scope_group_id: 10,
-      group_ids: [99]
-    })
-  })
 })

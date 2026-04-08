@@ -84,6 +84,35 @@ func TestSetStickySessionAccountID_DualWriteOldDisabled(t *testing.T) {
 	require.False(t, exists)
 }
 
+func TestClearStickySession_RemovesPrimaryAndLegacyKeys(t *testing.T) {
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{
+			"openai:new-hash":    9,
+			"openai:legacy-hash": 9,
+		},
+		deletedSessions: map[string]int{},
+	}
+	svc := &OpenAIGatewayService{
+		cache: cache,
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				OpenAIWS: config.GatewayOpenAIWSConfig{
+					SessionHashReadOldFallback: true,
+					SessionHashDualWriteOld:    true,
+				},
+			},
+		},
+	}
+
+	ctx := withOpenAILegacySessionHash(context.Background(), "legacy-hash")
+	err := svc.ClearStickySession(ctx, nil, "new-hash")
+	require.NoError(t, err)
+	require.NotContains(t, cache.sessionBindings, "openai:new-hash")
+	require.NotContains(t, cache.sessionBindings, "openai:legacy-hash")
+	require.Equal(t, 1, cache.deletedSessions["openai:new-hash"])
+	require.Equal(t, 1, cache.deletedSessions["openai:legacy-hash"])
+}
+
 func TestSnapshotOpenAICompatibilityFallbackMetrics(t *testing.T) {
 	before := SnapshotOpenAICompatibilityFallbackMetrics()
 

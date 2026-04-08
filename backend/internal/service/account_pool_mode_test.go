@@ -115,3 +115,19 @@ func TestGetPoolModeRetryCount(t *testing.T) {
 		})
 	}
 }
+
+func TestIsPoolModeRetryableStatus(t *testing.T) {
+	tests := []struct {
+		statusCode int
+		want       bool
+	}{
+		{statusCode: 401, want: true},
+		{statusCode: 403, want: true},
+		{statusCode: 429, want: false},
+		{statusCode: 500, want: false},
+	}
+
+	for _, tt := range tests {
+		require.Equal(t, tt.want, isPoolModeRetryableStatus(tt.statusCode), "status=%d", tt.statusCode)
+	}
+}

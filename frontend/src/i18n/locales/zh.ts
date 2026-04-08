@@ -2395,9 +2395,6 @@ export default {
       bulkEdit: {
         title: '批量编辑账号',
         selectionInfo: '已选择 {count} 个账号。只更新您勾选或填写的字段，未勾选的字段保持不变。',
-        scopeGroup: '作用范围分组',
-        scopeGroupHint: '仅对当前已选账号中属于该分组的账号执行本次批量编辑；不影响下方勾选字段的写入语义。',
-        scopeAllSelected: '全部已选账号',
         baseUrlPlaceholder: 'https://api.anthropic.com 或 https://api.openai.com',
         baseUrlNotice: '仅适用于 API Key 账号，留空则不修改',
         submit: '批量更新',

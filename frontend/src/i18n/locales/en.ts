@@ -2246,10 +2246,6 @@ export default {
         title: 'Bulk Edit Accounts',
         selectionInfo:
           '{count} account(s) selected. Only checked or filled fields will be updated; others stay unchanged.',
-        scopeGroup: 'Scope Group',
-        scopeGroupHint:
-          'Only accounts that are both selected and belong to this group will be updated. This does not change the write semantics of checked fields below.',
-        scopeAllSelected: 'All selected accounts',
         baseUrlPlaceholder: 'https://api.anthropic.com or https://api.openai.com',
         baseUrlNotice: 'Applies to API Key accounts only; leave empty to keep existing value',
         submit: 'Update Accounts',

@@ -239,7 +239,6 @@ type UpdateAccountInput struct {
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
 	AccountIDs     []int64
-	ScopeGroupID   *int64
 	Name           string
 	ProxyID        *int64
 	Concurrency    *int
@@ -1759,25 +1758,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
-	targetAccountIDs := append([]int64(nil), input.AccountIDs...)
-	if input.ScopeGroupID != nil {
-		filteredIDs, err := s.filterAccountIDsByScopeGroup(ctx, targetAccountIDs, *input.ScopeGroupID)
-		if err != nil {
-			return nil, err
-		}
-		if len(filteredIDs) == 0 {
-			return nil, infraerrors.BadRequest("ACCOUNT_SCOPE_EMPTY", "no selected accounts found in the scope group")
-		}
-		targetAccountIDs = filteredIDs
-	}
-
 	result := &BulkUpdateAccountsResult{
-		SuccessIDs: make([]int64, 0, len(targetAccountIDs)),
-		FailedIDs:  make([]int64, 0, len(targetAccountIDs)),
-		Results:    make([]BulkUpdateAccountResult, 0, len(targetAccountIDs)),
+		SuccessIDs: make([]int64, 0, len(input.AccountIDs)),
+		FailedIDs:  make([]int64, 0, len(input.AccountIDs)),
+		Results:    make([]BulkUpdateAccountResult, 0, len(input.AccountIDs)),
 	}
 
-	if len(targetAccountIDs) == 0 {
+	if len(input.AccountIDs) == 0 {
 		return result, nil
 	}
 	if input.GroupIDs != nil {
@@ -1791,7 +1778,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// 预加载账号平台信息（混合渠道检查需要）。
 	platformByID := map[int64]string{}
 	if needMixedChannelCheck {
-		accounts, err := s.accountRepo.GetByIDs(ctx, targetAccountIDs)
+		accounts, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -1804,7 +1791,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预检查混合渠道风险：在任何写操作之前，若发现风险立即返回错误。
 	if needMixedChannelCheck {
-		for _, accountID := range targetAccountIDs {
+		for _, accountID := range input.AccountIDs {
 			platform := platformByID[accountID]
 			if platform == "" {
 				continue
@@ -1858,12 +1845,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	// Run bulk update for column/jsonb fields first.
-	if _, err := s.accountRepo.BulkUpdate(ctx, targetAccountIDs, repoUpdates); err != nil {
+	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
 	}
 
 	// Handle group bindings per account (requires individual operations).
-	for _, accountID := range targetAccountIDs {
+	for _, accountID := range input.AccountIDs {
 		entry := BulkUpdateAccountResult{AccountID: accountID}
 
 		if input.GroupIDs != nil {
@@ -1969,60 +1956,6 @@ func (s *adminServiceImpl) TransferAccountsByGroup(ctx context.Context, input *T
 		AccountType:    candidateType,
 		AccountIDs:     movedIDs,
 	}, nil
-}
-
-func (s *adminServiceImpl) filterAccountIDsByScopeGroup(ctx context.Context, accountIDs []int64, scopeGroupID int64) ([]int64, error) {
-	if scopeGroupID <= 0 {
-		return append([]int64(nil), accountIDs...), nil
-	}
-
-	accounts, err := s.accountRepo.GetByIDs(ctx, accountIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	allowed := make(map[int64]struct{}, len(accounts))
-	for _, account := range accounts {
-		if account == nil {
-			continue
-		}
-		if accountHasGroup(account, scopeGroupID) {
-			allowed[account.ID] = struct{}{}
-		}
-	}
-
-	filtered := make([]int64, 0, len(accountIDs))
-	for _, accountID := range accountIDs {
-		if _, ok := allowed[accountID]; ok {
-			filtered = append(filtered, accountID)
-		}
-	}
-	return filtered, nil
-}
-
-func accountHasGroup(account *Account, groupID int64) bool {
-	if account == nil || groupID <= 0 {
-		return false
-	}
-	for _, id := range account.GroupIDs {
-		if id == groupID {
-			return true
-		}
-	}
-	for _, group := range account.Groups {
-		if group != nil && group.ID == groupID {
-			return true
-		}
-	}
-	for _, accountGroup := range account.AccountGroups {
-		if accountGroup.GroupID == groupID {
-			return true
-		}
-		if accountGroup.Group != nil && accountGroup.Group.ID == groupID {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {

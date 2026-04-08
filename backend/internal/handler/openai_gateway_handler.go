@@ -329,6 +329,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						continue
 					}
 				}
+				clearOpenAIStickySessionOnRateLimitFailover(c.Request.Context(), reqLog, h.gatewayService, apiKey.GroupID, sessionHash, account, failoverErr)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
@@ -728,6 +729,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						continue
 					}
 				}
+				clearOpenAIStickySessionOnRateLimitFailover(c.Request.Context(), reqLog, h.gatewayService, apiKey.GroupID, sessionHash, account, failoverErr)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
