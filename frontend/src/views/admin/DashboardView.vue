@@ -219,9 +219,48 @@
                   @change="onDateRangeChange"
                 />
               </div>
-              <button @click="loadDashboardStats" :disabled="chartsLoading" class="btn btn-secondary">
+              <button
+                @click="handleManualRefresh"
+                :disabled="pageRefreshInFlight"
+                class="btn btn-secondary"
+              >
                 {{ t('common.refresh') }}
               </button>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="btn"
+                  :class="autoRefreshEnabled ? 'btn-primary' : 'btn-secondary'"
+                  :aria-pressed="autoRefreshEnabled"
+                  @click="toggleAutoRefresh"
+                >
+                  <Icon
+                    name="refresh"
+                    size="sm"
+                    :class="autoRefreshEnabled ? 'animate-spin' : ''"
+                  />
+                  <span>
+                    {{
+                      autoRefreshEnabled
+                        ? t('admin.dashboard.disableAutoRefresh')
+                        : t('admin.dashboard.enableAutoRefresh')
+                    }}
+                  </span>
+                </button>
+                <div class="w-28">
+                  <Select
+                    v-model="autoRefreshIntervalSeconds"
+                    :options="autoRefreshIntervalOptions"
+                    @change="handleAutoRefreshIntervalChange"
+                  />
+                </div>
+                <span
+                  v-if="autoRefreshEnabled"
+                  class="text-xs text-gray-500 dark:text-gray-400"
+                >
+                  {{ t('admin.dashboard.autoRefreshCountdown', { seconds: autoRefreshCountdown }) }}
+                </span>
+              </div>
               <div class="ml-auto flex items-center gap-2">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
                   >{{ t('admin.dashboard.granularity') }}:</span
@@ -230,7 +269,7 @@
                   <Select
                     v-model="granularity"
                     :options="granularityOptions"
-                    @change="loadChartData"
+                    @change="handleGranularityChange"
                   />
                 </div>
               </div>
@@ -281,7 +320,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -346,7 +386,17 @@ const rankingTotalTokens = ref(0)
 let chartLoadSeq = 0
 let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
+let queuedPageRefresh = false
 const rankingLimit = 12
+const pageRefreshInFlight = ref(false)
+const DASHBOARD_AUTO_REFRESH_STORAGE_KEY = 'admin.dashboard.auto_refresh'
+const autoRefreshIntervals = [15, 30, 60] as const
+type AutoRefreshIntervalSeconds = (typeof autoRefreshIntervals)[number]
+type DashboardRefreshReason = 'initial' | 'manual' | 'filters' | 'auto'
+const defaultAutoRefreshInterval: AutoRefreshIntervalSeconds = 30
+const autoRefreshEnabled = ref(false)
+const autoRefreshIntervalSeconds = ref<AutoRefreshIntervalSeconds>(defaultAutoRefreshInterval)
+const autoRefreshCountdown = ref(0)
 
 // Helper function to format date in local timezone
 const formatLocalDate = (date: Date): string => {
@@ -373,6 +423,15 @@ const granularityOptions = computed(() => [
   { value: 'day', label: t('admin.dashboard.day') },
   { value: 'hour', label: t('admin.dashboard.hour') }
 ])
+const autoRefreshIntervalLabel = (seconds: number) => {
+  return t(`admin.dashboard.refreshInterval${seconds}s`)
+}
+const autoRefreshIntervalOptions = computed(() =>
+  autoRefreshIntervals.map((seconds) => ({
+    value: seconds,
+    label: autoRefreshIntervalLabel(seconds)
+  }))
+)
 
 // Dark mode detection
 const isDarkMode = computed(() => {
@@ -554,6 +613,104 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
   })
 }
 
+const getLocalStorage = (): Storage | null => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return window.localStorage
+  } catch (error) {
+    console.warn('Failed to access localStorage:', error)
+    return null
+  }
+}
+
+const parseAutoRefreshInterval = (
+  value: string | number | boolean | null | undefined
+): AutoRefreshIntervalSeconds | null => {
+  if (typeof value === 'number' && autoRefreshIntervals.includes(value as AutoRefreshIntervalSeconds)) {
+    return value as AutoRefreshIntervalSeconds
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    if (autoRefreshIntervals.includes(parsed as AutoRefreshIntervalSeconds)) {
+      return parsed as AutoRefreshIntervalSeconds
+    }
+  }
+
+  return null
+}
+
+const resetAutoRefreshCountdown = () => {
+  autoRefreshCountdown.value = autoRefreshEnabled.value ? autoRefreshIntervalSeconds.value : 0
+}
+
+const persistAutoRefreshSettings = () => {
+  const storage = getLocalStorage()
+  if (!storage) return
+
+  try {
+    storage.setItem(
+      DASHBOARD_AUTO_REFRESH_STORAGE_KEY,
+      JSON.stringify({
+        enabled: autoRefreshEnabled.value,
+        interval_seconds: autoRefreshIntervalSeconds.value
+      })
+    )
+  } catch (error) {
+    console.warn('Failed to persist dashboard auto refresh settings:', error)
+  }
+}
+
+const restoreAutoRefreshSettings = () => {
+  const storage = getLocalStorage()
+  if (!storage) return
+
+  try {
+    const raw = storage.getItem(DASHBOARD_AUTO_REFRESH_STORAGE_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw) as {
+      enabled?: boolean
+      interval_seconds?: number
+    }
+
+    autoRefreshEnabled.value = parsed.enabled === true
+    const restoredInterval = parseAutoRefreshInterval(parsed.interval_seconds)
+    if (restoredInterval) {
+      autoRefreshIntervalSeconds.value = restoredInterval
+    }
+    resetAutoRefreshCountdown()
+  } catch (error) {
+    console.warn('Failed to restore dashboard auto refresh settings:', error)
+  }
+}
+
+const setAutoRefreshEnabled = (enabled: boolean) => {
+  autoRefreshEnabled.value = enabled
+  persistAutoRefreshSettings()
+  resetAutoRefreshCountdown()
+  if (enabled) {
+    resumeAutoRefresh()
+    return
+  }
+  pauseAutoRefresh()
+}
+
+const setAutoRefreshInterval = (seconds: AutoRefreshIntervalSeconds) => {
+  autoRefreshIntervalSeconds.value = seconds
+  persistAutoRefreshSettings()
+  if (autoRefreshEnabled.value) {
+    autoRefreshCountdown.value = seconds
+  }
+}
+
+const toggleAutoRefresh = () => {
+  setAutoRefreshEnabled(!autoRefreshEnabled.value)
+}
+
 // Date range change handler
 const onDateRangeChange = (range: {
   startDate: string
@@ -572,7 +729,7 @@ const onDateRangeChange = (range: {
     granularity.value = 'day'
   }
 
-  loadChartData()
+  void runDashboardRefresh('filters')
 }
 
 // Load data
@@ -672,16 +829,74 @@ const loadDashboardStats = async () => {
   ])
 }
 
-const loadChartData = async () => {
-  await Promise.all([
-    loadDashboardSnapshot(false),
-    loadUsersTrend(),
-    loadUserSpendingRanking()
-  ])
+const runDashboardRefresh = async (reason: DashboardRefreshReason): Promise<boolean> => {
+  if (pageRefreshInFlight.value) {
+    if (reason !== 'auto') {
+      queuedPageRefresh = true
+    }
+    return false
+  }
+
+  pageRefreshInFlight.value = true
+
+  try {
+    await loadDashboardStats()
+    resetAutoRefreshCountdown()
+    return true
+  } finally {
+    pageRefreshInFlight.value = false
+
+    if (queuedPageRefresh) {
+      queuedPageRefresh = false
+      void runDashboardRefresh('filters')
+    }
+  }
 }
 
+const handleManualRefresh = () => {
+  void runDashboardRefresh('manual')
+}
+
+const handleGranularityChange = () => {
+  void runDashboardRefresh('filters')
+}
+
+const handleAutoRefreshIntervalChange = (value: string | number | boolean | null) => {
+  const nextInterval = parseAutoRefreshInterval(value)
+  if (!nextInterval) return
+  setAutoRefreshInterval(nextInterval)
+}
+
+const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
+  () => {
+    if (!autoRefreshEnabled.value) return
+
+    if (autoRefreshCountdown.value > 0) {
+      autoRefreshCountdown.value -= 1
+    }
+
+    if (autoRefreshCountdown.value > 0 || pageRefreshInFlight.value) {
+      return
+    }
+
+    void runDashboardRefresh('auto')
+  },
+  1000,
+  { immediate: false }
+)
+
 onMounted(() => {
-  loadDashboardStats()
+  restoreAutoRefreshSettings()
+  if (autoRefreshEnabled.value) {
+    resumeAutoRefresh()
+  } else {
+    pauseAutoRefresh()
+  }
+  void runDashboardRefresh('initial')
+})
+
+onUnmounted(() => {
+  pauseAutoRefresh()
 })
 </script>
 

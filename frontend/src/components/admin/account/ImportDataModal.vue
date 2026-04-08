@@ -17,6 +17,26 @@
       </div>
 
       <div>
+        <label class="input-label">
+          {{ t('admin.accounts.dataImportTargetGroup') }}
+          <span class="ml-1 text-xs text-red-500">{{ t('admin.accounts.dataImportTargetGroupRequired') }}</span>
+        </label>
+        <Select
+          v-model="targetGroupId"
+          :options="groupOptions"
+          :placeholder="t('admin.accounts.dataImportTargetGroupPlaceholder')"
+          :error="targetGroupError"
+          searchable
+        />
+        <p v-if="targetGroupError" class="mt-1 text-xs text-red-600 dark:text-red-400">
+          {{ t('admin.accounts.dataImportTargetGroupMissing') }}
+        </p>
+        <p v-else class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.dataImportTargetGroupHint') }}
+        </p>
+      </div>
+
+      <div>
         <label class="input-label">{{ t('admin.accounts.dataImportFile') }}</label>
         <div
           class="flex items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 dark:border-dark-600 dark:bg-dark-800"
@@ -88,12 +108,14 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select from '@/components/common/Select.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AdminDataImportResult } from '@/types'
+import type { AdminDataImportResult, AdminGroup } from '@/types'
 
 interface Props {
   show: boolean
+  groups: AdminGroup[]
 }
 
 interface Emits {
@@ -110,11 +132,19 @@ const appStore = useAppStore()
 const importing = ref(false)
 const file = ref<File | null>(null)
 const result = ref<AdminDataImportResult | null>(null)
+const targetGroupId = ref<number | null>(null)
+const targetGroupError = ref(false)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const fileName = computed(() => file.value?.name || '')
 
 const errorItems = computed(() => result.value?.errors || [])
+const groupOptions = computed(() =>
+  props.groups.map(group => ({
+    value: group.id,
+    label: group.name
+  }))
+)
 
 watch(
   () => props.show,
@@ -122,12 +152,20 @@ watch(
     if (open) {
       file.value = null
       result.value = null
+      targetGroupId.value = null
+      targetGroupError.value = false
       if (fileInput.value) {
         fileInput.value.value = ''
       }
     }
   }
 )
+
+watch(targetGroupId, (value) => {
+  if (value) {
+    targetGroupError.value = false
+  }
+})
 
 const openFilePicker = () => {
   fileInput.value?.click()
@@ -162,6 +200,11 @@ const readFileAsText = async (sourceFile: File): Promise<string> => {
 }
 
 const handleImport = async () => {
+  if (!targetGroupId.value) {
+    targetGroupError.value = true
+    appStore.showError(t('admin.accounts.dataImportTargetGroupMissing'))
+    return
+  }
   if (!file.value) {
     appStore.showError(t('admin.accounts.dataImportSelectFile'))
     return
@@ -174,7 +217,8 @@ const handleImport = async () => {
 
     const res = await adminAPI.accounts.importData({
       data: dataPayload,
-      skip_default_group_bind: true
+      skip_default_group_bind: true,
+      target_group_id: targetGroupId.value
     })
 
     result.value = res
@@ -196,7 +240,7 @@ const handleImport = async () => {
     if (error instanceof SyntaxError) {
       appStore.showError(t('admin.accounts.dataImportParseFailed'))
     } else {
-      appStore.showError(error?.message || t('admin.accounts.dataImportFailed'))
+      appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.dataImportFailed'))
     }
   } finally {
     importing.value = false
