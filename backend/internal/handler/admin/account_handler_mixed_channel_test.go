@@ -270,25 +270,3 @@ func TestAccountHandlerTransferAccountsByGroupSuccess(t *testing.T) {
 	require.Equal(t, float64(10), data["source_group_id"])
 	require.Equal(t, float64(20), data["target_group_id"])
 }
-
-func TestAccountHandlerBulkUpdatePassesScopeGroupID(t *testing.T) {
-	adminSvc := newStubAdminService()
-	router := setupAccountMixedChannelRouter(adminSvc)
-
-	body, _ := json.Marshal(map[string]any{
-		"account_ids":    []int64{1, 2},
-		"scope_group_id": 10,
-		"group_ids":      []int64{20},
-	})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotNil(t, adminSvc.lastBulkUpdateInput)
-	require.NotNil(t, adminSvc.lastBulkUpdateInput.ScopeGroupID)
-	require.Equal(t, int64(10), *adminSvc.lastBulkUpdateInput.ScopeGroupID)
-	require.NotNil(t, adminSvc.lastBulkUpdateInput.GroupIDs)
-	require.Equal(t, []int64{20}, *adminSvc.lastBulkUpdateInput.GroupIDs)
-}

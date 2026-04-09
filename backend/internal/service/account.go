@@ -765,10 +765,12 @@ func parsePoolModeRetryCount(value any) int {
 	return defaultPoolModeRetryCount
 }
 
-// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码
+// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码。
+// OpenAI 官方 429 表示当前号码额度/窗口已耗尽，应立即 failover 到其他号码，
+// 不应在当前号码上继续原地重试，否则只会重复命中限流。
 func isPoolModeRetryableStatus(statusCode int) bool {
 	switch statusCode {
-	case 401, 403, 429:
+	case 401, 403:
 		return true
 	default:
 		return false

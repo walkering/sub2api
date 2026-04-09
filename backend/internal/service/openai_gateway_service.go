@@ -1189,6 +1189,15 @@ func (s *OpenAIGatewayService) BindStickySession(ctx context.Context, groupID *i
 	return s.setStickySessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
 }
 
+// ClearStickySession removes a sticky session binding so a retry can immediately
+// switch to another account instead of reusing a known-bad sticky target.
+func (s *OpenAIGatewayService) ClearStickySession(ctx context.Context, groupID *int64, sessionHash string) error {
+	if sessionHash == "" {
+		return nil
+	}
+	return s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+}
+
 // SelectAccount selects an OpenAI account with sticky session support
 func (s *OpenAIGatewayService) SelectAccount(ctx context.Context, groupID *int64, sessionHash string) (*Account, error) {
 	return s.SelectAccountForModel(ctx, groupID, sessionHash, "")

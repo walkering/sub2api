@@ -228,6 +228,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						continue
 					}
 				}
+				clearOpenAIStickySessionOnRateLimitFailover(c.Request.Context(), reqLog, h.gatewayService, apiKey.GroupID, sessionHash, account, failoverErr)
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
