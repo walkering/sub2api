@@ -216,6 +216,8 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 		search      string
 		groupID     int64
 		privacyMode string
+		refreshMode string
+		testMode    string
 		wantCount   int
 		validate    func(accounts []service.Account)
 	}{
@@ -324,6 +326,32 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 				s.ElementsMatch([]string{"privacy-unset", "privacy-empty"}, names)
 			},
 		},
+		{
+			name: "filter_by_last_refresh_set",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "refresh-set", Extra: map[string]any{service.AccountExtraLastTokenRefreshAt: time.Now().UTC().Format(time.RFC3339)}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "refresh-unset", Extra: nil})
+			},
+			refreshMode: service.AccountTimestampFilterSet,
+			wantCount:   1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("refresh-set", accounts[0].Name)
+			},
+		},
+		{
+			name: "filter_by_last_test_unset",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "test-empty", Extra: map[string]any{service.AccountExtraLastTestAt: ""}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "test-set", Extra: map[string]any{service.AccountExtraLastTestAt: time.Now().UTC().Format(time.RFC3339)}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "test-unset", Extra: nil})
+			},
+			testMode:  service.AccountTimestampFilterUnset,
+			wantCount: 2,
+			validate: func(accounts []service.Account) {
+				names := []string{accounts[0].Name, accounts[1].Name}
+				s.ElementsMatch([]string{"test-empty", "test-unset"}, names)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -336,7 +364,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 
 			tt.setup(client)
 
-			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode)
+			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode, tt.refreshMode, tt.testMode)
 			s.Require().NoError(err)
 			s.Require().Len(accounts, tt.wantCount)
 			if tt.validate != nil {
@@ -403,7 +431,7 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Len(got.Groups, 1, "expected Groups to be populated")
 	s.Require().Equal(group.ID, got.Groups[0].ID)
 
-	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "")
+	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "", "", "")
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)

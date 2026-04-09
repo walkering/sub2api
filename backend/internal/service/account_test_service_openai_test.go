@@ -77,6 +77,24 @@ func (r *openAIAccountTestRepo) SetRateLimited(_ context.Context, id int64, rese
 	return nil
 }
 
+type accountTestTouchRepo struct {
+	mockAccountRepoForGemini
+	account      *Account
+	extraUpdates []map[string]any
+}
+
+func (r *accountTestTouchRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	if r.account != nil && r.account.ID == id {
+		return r.account, nil
+	}
+	return nil, ErrAccountNotFound
+}
+
+func (r *accountTestTouchRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+	r.extraUpdates = append(r.extraUpdates, updates)
+	return nil
+}
+
 func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
@@ -144,4 +162,37 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimit(t *testing.T) 
 	if account.RateLimitResetAt != nil && repo.rateLimitedAt != nil {
 		require.WithinDuration(t, *repo.rateLimitedAt, *account.RateLimitResetAt, time.Second)
 	}
+}
+
+func TestAccountTestService_RunTestBackgroundTouchesLastTestAt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+
+	repo := &accountTestTouchRepo{
+		account: &Account{
+			ID:          66,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Concurrency: 1,
+			Credentials: map[string]any{"access_token": "test-token"},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
+
+	result, err := svc.RunTestBackground(context.Background(), 66, "gpt-5.4")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "success", result.Status)
+	require.Len(t, repo.extraUpdates, 1)
+
+	raw, ok := repo.extraUpdates[0][AccountExtraLastTestAt].(string)
+	require.True(t, ok)
+	parsed, parseErr := time.Parse(time.RFC3339, raw)
+	require.NoError(t, parseErr)
+	require.False(t, parsed.IsZero())
 }

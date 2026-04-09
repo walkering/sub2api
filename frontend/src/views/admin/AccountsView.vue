@@ -118,6 +118,9 @@
               </div>
             </template>
             <template #beforeCreate>
+              <button @click="showGroupScheduledTests = true" class="btn btn-secondary">
+                {{ t('admin.scheduledTests.schedule') }}
+              </button>
               <button @click="showImportData = true" class="btn btn-secondary">
                 {{ t('admin.accounts.dataImport') }}
               </button>
@@ -158,7 +161,7 @@
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           :columns="cols"
-          :data="accounts"
+          :data="tableAccounts"
           :loading="loading"
           row-key="id"
           default-sort-key="name"
@@ -253,6 +256,15 @@
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
           </template>
+          <template #cell-created_at="{ value }">
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatTableDateTime(value) }}</span>
+          </template>
+          <template #cell-last_token_refresh_at="{ row }">
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatTableDateTime(getAccountExtraTimestamp(row, 'last_token_refresh_at')) }}</span>
+          </template>
+          <template #cell-last_test_at="{ row }">
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatTableDateTime(getAccountExtraTimestamp(row, 'last_test_at')) }}</span>
+          </template>
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
               <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatExpiresAt(value) }}</span>
@@ -296,9 +308,10 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="reload" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <GroupScheduledTestsDialog :show="showGroupScheduledTests" :groups="groups" @close="showGroupScheduledTests = false" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" :groups="groups" @close="showImportData = false" @imported="handleDataImported" />
@@ -352,6 +365,7 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import GroupScheduledTestsDialog from '@/components/admin/group/GroupScheduledTestsDialog.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -406,6 +420,7 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showGroupScheduledTests = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -629,7 +644,7 @@ const {
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
   fetchFn: adminAPI.accounts.list,
-  initialParams: { platform: '', type: '', status: '', privacy_mode: '', group: '', search: '' }
+  initialParams: { platform: '', type: '', status: '', privacy_mode: '', refresh_status: '', test_status: '', group: '', search: '' }
 })
 
 const {
@@ -753,9 +768,19 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
     current.overload_until !== next.overload_until ||
     current.temp_unschedulable_until !== next.temp_unschedulable_until ||
+    getAccountExtraTimestamp(current, 'last_token_refresh_at') !== getAccountExtraTimestamp(next, 'last_token_refresh_at') ||
+    getAccountExtraTimestamp(current, 'last_test_at') !== getAccountExtraTimestamp(next, 'last_test_at') ||
     buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next)
   )
 }
+
+const tableAccounts = computed(() =>
+  accounts.value.map(account => ({
+    ...account,
+    last_token_refresh_at: getAccountExtraTimestamp(account, 'last_token_refresh_at'),
+    last_test_at: getAccountExtraTimestamp(account, 'last_test_at')
+  }))
+)
 
 const syncAccountRefs = (nextAccount: Account) => {
   if (edAcc.value?.id === nextAccount.id) edAcc.value = nextAccount
@@ -807,6 +832,8 @@ const refreshAccountsIncrementally = async () => {
         type?: string
         status?: string
         privacy_mode?: string
+        refresh_status?: string
+        test_status?: string
         group?: string
         search?: string
 
@@ -925,6 +952,9 @@ const allColumns = computed(() => {
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
+    { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
+    { key: 'last_token_refresh_at', label: t('admin.accounts.columns.lastTokenRefreshAt'), sortable: true },
+    { key: 'last_test_at', label: t('admin.accounts.columns.lastTestAt'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
@@ -1153,6 +1183,18 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(params.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
+  if (params.refresh_status) {
+    const hasRefresh = !!getAccountExtraTimestamp(account, 'last_token_refresh_at')
+    if ((params.refresh_status === 'set' && !hasRefresh) || (params.refresh_status === 'unset' && hasRefresh)) {
+      return false
+    }
+  }
+  if (params.test_status) {
+    const hasTest = !!getAccountExtraTimestamp(account, 'last_test_at')
+    if ((params.test_status === 'set' && !hasTest) || (params.test_status === 'unset' && hasTest)) {
+      return false
+    }
+  }
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
@@ -1329,8 +1371,19 @@ const handleTempUnschedReset = async (updated: Account) => {
 }
 const formatExpiresAt = (value: number | null) => {
   if (!value) return '-'
+  return formatTableDateTime(new Date(value * 1000))
+}
+const isExpired = (value: number | null) => {
+  if (!value) return false
+  return value * 1000 <= Date.now()
+}
+
+const formatTableDateTime = (value: string | Date | null | undefined) => {
+  if (!value) return '-'
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
   return formatDateTime(
-    new Date(value * 1000),
+    date,
     {
       year: 'numeric',
       month: '2-digit',
@@ -1342,9 +1395,10 @@ const formatExpiresAt = (value: number | null) => {
     'sv-SE'
   )
 }
-const isExpired = (value: number | null) => {
-  if (!value) return false
-  return value * 1000 <= Date.now()
+
+const getAccountExtraTimestamp = (account: Account, key: 'last_token_refresh_at' | 'last_test_at') => {
+  const raw = account.extra?.[key]
+  return typeof raw === 'string' ? raw : null
 }
 
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）

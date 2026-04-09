@@ -39,6 +39,8 @@ export async function list(
     group?: string
     search?: string
     privacy_mode?: string
+    refresh_status?: string
+    test_status?: string
     lite?: string
   },
   options?: {
@@ -72,6 +74,8 @@ export async function listWithEtag(
     group?: string
     search?: string
     privacy_mode?: string
+    refresh_status?: string
+    test_status?: string
     lite?: string
   },
   options?: {

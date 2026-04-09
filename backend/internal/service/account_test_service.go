@@ -83,6 +83,15 @@ func NewAccountTestService(
 	}
 }
 
+func (s *AccountTestService) touchLastTestAt(ctx context.Context, accountID int64) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 {
+		return
+	}
+	_ = s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
+		AccountExtraLastTestAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {
 	if s.cfg == nil {
 		return "", errors.New("config is not available")
@@ -167,6 +176,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	defer s.touchLastTestAt(ctx, account.ID)
 
 	// Route to platform-specific test method
 	if account.IsOpenAI() {

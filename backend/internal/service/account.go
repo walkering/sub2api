@@ -65,6 +65,13 @@ type Account struct {
 	modelMappingCacheRawSig         uint64
 }
 
+const (
+	AccountExtraLastTokenRefreshAt = "last_token_refresh_at"
+	AccountExtraLastTestAt         = "last_test_at"
+	AccountTimestampFilterSet      = "set"
+	AccountTimestampFilterUnset    = "unset"
+)
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`

@@ -232,6 +232,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
+	refreshStatus := strings.TrimSpace(c.Query("refresh_status"))
+	testStatus := strings.TrimSpace(c.Query("test_status"))
 	// 标准化和验证 search 参数
 	search = strings.TrimSpace(search)
 	if len(search) > 100 {
@@ -257,7 +259,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, refreshStatus, testStatus)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -379,7 +381,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		result[i] = item
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, privacyMode, refreshStatus, testStatus, lite)
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -396,7 +398,7 @@ func buildAccountsListETag(
 	items []AccountWithConcurrency,
 	total int64,
 	page, pageSize int,
-	platform, accountType, status, search string,
+	platform, accountType, status, search, privacyMode, refreshStatus, testStatus string,
 	lite bool,
 ) string {
 	payload := struct {
@@ -407,6 +409,9 @@ func buildAccountsListETag(
 		AccountType string                   `json:"type"`
 		Status      string                   `json:"status"`
 		Search      string                   `json:"search"`
+		PrivacyMode string                   `json:"privacy_mode"`
+		Refresh     string                   `json:"refresh_status"`
+		Test        string                   `json:"test_status"`
 		Lite        bool                     `json:"lite"`
 		Items       []AccountWithConcurrency `json:"items"`
 	}{
@@ -417,6 +422,9 @@ func buildAccountsListETag(
 		AccountType: accountType,
 		Status:      status,
 		Search:      search,
+		PrivacyMode: privacyMode,
+		Refresh:     refreshStatus,
+		Test:        testStatus,
 		Lite:        lite,
 		Items:       items,
 	}
@@ -794,6 +802,9 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 
 	var newCredentials map[string]any
+	extraUpdates := map[string]any{
+		service.AccountExtraLastTokenRefreshAt: time.Now().UTC().Format(time.RFC3339),
+	}
 
 	if account.IsOpenAI() {
 		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
@@ -845,7 +856,8 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		// 如果 project_id 获取失败，更新凭证但不标记为 error
 		if tokenInfo.ProjectIDMissing {
 			updatedAccount, updateErr := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
-				Credentials: newCredentials,
+				Credentials:  newCredentials,
+				ExtraUpdates: extraUpdates,
 			})
 			if updateErr != nil {
 				return nil, "", fmt.Errorf("failed to update credentials: %w", updateErr)
@@ -887,7 +899,8 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
-		Credentials: newCredentials,
+		Credentials:  newCredentials,
+		ExtraUpdates: extraUpdates,
 	})
 	if err != nil {
 		return nil, "", err
@@ -1512,7 +1525,7 @@ func (h *AccountHandler) TransferAccountsByGroup(c *gin.Context) {
 		return
 	}
 
-	sourceAccounts, _, err := h.adminService.ListAccounts(c.Request.Context(), 1, 10000, "", "", "", "", req.SourceGroupID, "")
+	sourceAccounts, _, err := h.adminService.ListAccounts(c.Request.Context(), 1, 10000, "", "", "", "", req.SourceGroupID, "", "", "")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2141,7 +2154,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "", "")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

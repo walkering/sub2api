@@ -120,7 +120,33 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
-	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
+	if plan == nil {
+		return
+	}
+
+	if plan.IsGroupPlan() {
+		if _, err := s.scheduledSvc.CreateJobForPlan(ctx, plan); err != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] group plan=%d CreateJobForPlan error: %v", plan.ID, err)
+			return
+		}
+
+		nextRun, err := computeNextRun(plan.CronExpression, time.Now())
+		if err != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] group plan=%d computeNextRun error: %v", plan.ID, err)
+			return
+		}
+		if err := s.planRepo.UpdateAfterRun(ctx, plan.ID, time.Now(), nextRun); err != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] group plan=%d UpdateAfterRun error: %v", plan.ID, err)
+		}
+		return
+	}
+
+	if plan.AccountID == nil || *plan.AccountID <= 0 {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d skipped: missing account_id", plan.ID)
+		return
+	}
+
+	result, err := s.accountTestSvc.RunTestBackground(ctx, *plan.AccountID, plan.ModelID)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
 		return
@@ -132,7 +158,7 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 
 	// Auto-recover account if test succeeded and auto_recover is enabled.
 	if result.Status == "success" && plan.AutoRecover {
-		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
+		s.tryRecoverAccount(ctx, *plan.AccountID, plan.ID)
 	}
 
 	nextRun, err := computeNextRun(plan.CronExpression, time.Now())

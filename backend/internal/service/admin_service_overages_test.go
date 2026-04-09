@@ -12,8 +12,10 @@ import (
 
 type updateAccountOveragesRepoStub struct {
 	mockAccountRepoForGemini
-	account     *Account
-	updateCalls int
+	account       *Account
+	updateCalls   int
+	extraUpdateID int64
+	extraUpdates  map[string]any
 }
 
 func (r *updateAccountOveragesRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -23,6 +25,20 @@ func (r *updateAccountOveragesRepoStub) GetByID(ctx context.Context, id int64) (
 func (r *updateAccountOveragesRepoStub) Update(ctx context.Context, account *Account) error {
 	r.updateCalls++
 	r.account = account
+	return nil
+}
+
+func (r *updateAccountOveragesRepoStub) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
+	r.extraUpdateID = id
+	r.extraUpdates = updates
+	if r.account != nil {
+		if r.account.Extra == nil {
+			r.account.Extra = map[string]any{}
+		}
+		for key, value := range updates {
+			r.account.Extra[key] = value
+		}
+	}
 	return nil
 }
 
@@ -152,4 +168,37 @@ func TestUpdateAccount_EmptyExtraPayloadCanClearQuotaLimits(t *testing.T) {
 	require.NotContains(t, repo.account.Extra, "quota_daily_limit")
 	require.NotContains(t, repo.account.Extra, "quota_weekly_limit")
 	require.Len(t, repo.account.Extra, 0)
+}
+
+func TestUpdateAccount_ExtraUpdatesUsesPartialMerge(t *testing.T) {
+	accountID := int64(104)
+	repo := &updateAccountOveragesRepoStub{
+		account: &Account{
+			ID:       accountID,
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeOAuth,
+			Status:   StatusActive,
+			Extra: map[string]any{
+				"privacy_mode": "training_off",
+			},
+		},
+	}
+
+	svc := &adminServiceImpl{accountRepo: repo}
+	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		Credentials: map[string]any{
+			"access_token": "new-token",
+		},
+		ExtraUpdates: map[string]any{
+			AccountExtraLastTokenRefreshAt: "2026-04-10T10:20:30Z",
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, 1, repo.updateCalls)
+	require.Equal(t, accountID, repo.extraUpdateID)
+	require.Equal(t, "2026-04-10T10:20:30Z", repo.extraUpdates[AccountExtraLastTokenRefreshAt])
+	require.Equal(t, "training_off", updated.Extra["privacy_mode"])
+	require.Equal(t, "2026-04-10T10:20:30Z", updated.Extra[AccountExtraLastTokenRefreshAt])
 }

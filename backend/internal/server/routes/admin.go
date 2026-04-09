@@ -523,8 +523,17 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		plans.DELETE("/:id", h.Admin.ScheduledTest.Delete)
 		plans.GET("/:id/results", h.Admin.ScheduledTest.ListResults)
 	}
-	// Nested under accounts
+	jobs := admin.Group("/test-jobs")
+	{
+		jobs.GET("/:id", h.Admin.ScheduledTest.GetJob)
+		jobs.GET("/:id/snapshot", h.Admin.ScheduledTest.GetJobSnapshot)
+		jobs.GET("/:id/logs/stream", h.Admin.ScheduledTest.StreamJobLogs)
+	}
+	// Nested under accounts/groups
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+	admin.GET("/groups/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByGroup)
+	admin.POST("/groups/:id/test-jobs", h.Admin.ScheduledTest.CreateJob)
+	admin.GET("/groups/:id/test-jobs", h.Admin.ScheduledTest.ListJobsByGroup)
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

@@ -663,6 +663,8 @@ export interface Account {
   // Extra fields including Codex usage and model-level rate limits (Antigravity smart retry)
   extra?: (CodexUsageSnapshot & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
+    last_token_refresh_at?: string
+    last_test_at?: string
   } & Record<string, unknown>)
   proxy_id: number | null
   concurrency: number
@@ -1592,12 +1594,15 @@ export interface TotpLogin2FARequest {
 
 export interface ScheduledTestPlan {
   id: number
-  account_id: number
+  account_id?: number | null
+  group_id?: number | null
   model_id: string
   cron_expression: string
   enabled: boolean
   max_results: number
   auto_recover: boolean
+  batch_size: number
+  offset: number
   last_run_at: string | null
   next_run_at: string | null
   created_at: string
@@ -1617,18 +1622,86 @@ export interface ScheduledTestResult {
 }
 
 export interface CreateScheduledTestPlanRequest {
-  account_id: number
-  model_id: string
+  account_id?: number
+  group_id?: number
+  model_id?: string
   cron_expression: string
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  batch_size?: number
+  offset?: number
 }
 
 export interface UpdateScheduledTestPlanRequest {
-  model_id?: string
+  model_id?: string | null
   cron_expression?: string
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  batch_size?: number
+  offset?: number
+}
+
+export interface AccountTestJob {
+  id: number
+  group_id: number
+  plan_id?: number | null
+  model_id: string
+  trigger_source: 'manual' | 'scheduled'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'no_accounts'
+  batch_size: number
+  offset: number
+  total_accounts: number
+  pending_accounts: number
+  running_accounts: number
+  succeeded_accounts: number
+  failed_accounts: number
+  created_by?: number | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AccountTestJobItem {
+  id: number
+  job_id: number
+  account_id: number
+  account_name: string
+  scheduled_for: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  response_text: string
+  error_message: string
+  latency_ms: number
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AccountTestJobLog {
+  id: number
+  job_id: number
+  account_id?: number | null
+  account_name: string
+  event_type: string
+  status: string
+  message: string
+  response_text: string
+  error_message: string
+  latency_ms: number
+  created_at: string
+}
+
+export interface AccountTestJobSnapshot {
+  job: AccountTestJob
+  items: AccountTestJobItem[]
+  logs: AccountTestJobLog[]
+}
+
+export interface CreateAccountTestJobRequest {
+  model_id?: string
+  batch_size?: number
+  offset?: number
 }

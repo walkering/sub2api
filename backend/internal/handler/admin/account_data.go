@@ -433,7 +433,7 @@ func (h *AccountHandler) listAccountsFilteredByGroup(ctx context.Context, platfo
 	pageSize := dataPageCap
 	var out []service.Account
 	for {
-		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, "")
+		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, "", "", "")
 		if err != nil {
 			return nil, err
 		}

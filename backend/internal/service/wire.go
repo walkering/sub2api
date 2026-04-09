@@ -322,8 +322,13 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
 	resultRepo ScheduledTestResultRepository,
+	jobRepo AccountTestJobRepository,
+	accountRepo AccountRepository,
+	groupRepo GroupRepository,
+	accountTester ScheduledAccountTester,
+	recovery ScheduledAccountRecovery,
 ) *ScheduledTestService {
-	return NewScheduledTestService(planRepo, resultRepo)
+	return NewScheduledTestService(planRepo, resultRepo, jobRepo, accountRepo, groupRepo, accountTester, recovery)
 }
 
 // ProvideScheduledTestRunnerService creates and starts ScheduledTestRunnerService.
@@ -446,8 +451,10 @@ var ProviderSet = wire.NewSet(
 	ProvideClaudeTokenProvider,
 	NewAntigravityGatewayService,
 	ProvideRateLimitService,
+	wire.Bind(new(ScheduledAccountRecovery), new(*RateLimitService)),
 	NewAccountUsageService,
 	NewAccountTestService,
+	wire.Bind(new(ScheduledAccountTester), new(*AccountTestService)),
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,

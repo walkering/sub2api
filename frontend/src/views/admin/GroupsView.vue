@@ -228,6 +228,27 @@
                 <span class="text-xs">{{ t('admin.groups.rateMultipliers') }}</span>
               </button>
               <button
+                @click="handleScheduledTests(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+              >
+                <Icon name="calendar" size="sm" />
+                <span class="text-xs">{{ t('admin.scheduledTests.schedule') }}</span>
+              </button>
+              <button
+                @click="handleRunGroupTest(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-dark-700 dark:hover:text-emerald-400"
+              >
+                <Icon name="play" size="sm" />
+                <span class="text-xs">{{ t('admin.scheduledTests.runNow') }}</span>
+              </button>
+              <button
+                @click="handleShowLogs(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-dark-700 dark:hover:text-blue-400"
+              >
+                <Icon name="document" size="sm" />
+                <span class="text-xs">{{ t('admin.scheduledTests.realtimeLogs') }}</span>
+              </button>
+              <button
                 @click="handleDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -1793,6 +1814,19 @@
       @close="showRateMultipliersModal = false"
       @success="loadGroups"
     />
+    <GroupScheduledTestsDialog
+      :show="showScheduledTestsDialog"
+      :groups="groups"
+      :group-id="scheduledTestsGroup?.id ?? null"
+      @close="showScheduledTestsDialog = false"
+    />
+    <GroupTestLogsDialog
+      :show="showGroupLogsDialog"
+      :group-id="groupLogsGroup?.id ?? null"
+      :group-name="groupLogsGroup?.name ?? ''"
+      :initial-job-id="initialLogJobId"
+      @close="closeGroupLogsDialog"
+    />
   </AppLayout>
 </template>
 
@@ -1815,6 +1849,8 @@ import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import GroupRateMultipliersModal from '@/components/admin/group/GroupRateMultipliersModal.vue'
+import GroupScheduledTestsDialog from '@/components/admin/group/GroupScheduledTestsDialog.vue'
+import GroupTestLogsDialog from '@/components/admin/group/GroupTestLogsDialog.vue'
 import GroupCapacityBadge from '@/components/common/GroupCapacityBadge.vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -1997,6 +2033,11 @@ const deletingGroup = ref<AdminGroup | null>(null)
 const showRateMultipliersModal = ref(false)
 const rateMultipliersGroup = ref<AdminGroup | null>(null)
 const sortableGroups = ref<AdminGroup[]>([])
+const showScheduledTestsDialog = ref(false)
+const scheduledTestsGroup = ref<AdminGroup | null>(null)
+const showGroupLogsDialog = ref(false)
+const groupLogsGroup = ref<AdminGroup | null>(null)
+const initialLogJobId = ref<number | null>(null)
 
 const createForm = reactive({
   name: '',
@@ -2550,6 +2591,36 @@ const handleUpdateGroup = async () => {
 const handleRateMultipliers = (group: AdminGroup) => {
   rateMultipliersGroup.value = group
   showRateMultipliersModal.value = true
+}
+
+const handleScheduledTests = (group: AdminGroup) => {
+  scheduledTestsGroup.value = group
+  showScheduledTestsDialog.value = true
+}
+
+const handleShowLogs = (group: AdminGroup, jobId?: number | null) => {
+  groupLogsGroup.value = group
+  initialLogJobId.value = jobId ?? null
+  showGroupLogsDialog.value = true
+}
+
+const closeGroupLogsDialog = () => {
+  showGroupLogsDialog.value = false
+  groupLogsGroup.value = null
+  initialLogJobId.value = null
+}
+
+const handleRunGroupTest = async (group: AdminGroup) => {
+  const confirmed = window.confirm(t('admin.scheduledTests.runNowConfirm', { name: group.name }))
+  if (!confirmed) return
+
+  try {
+    const job = await adminAPI.scheduledTests.createGroupJob(group.id)
+    appStore.showSuccess(t('admin.scheduledTests.jobCreated'))
+    handleShowLogs(group, job.id)
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.scheduledTests.jobCreateFailed'))
+  }
 }
 
 const handleDelete = (group: AdminGroup) => {

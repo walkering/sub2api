@@ -60,8 +60,10 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
-	"codex_usage_updated_at":     {},
-	"session_window_utilization": {},
+	"codex_usage_updated_at":               {},
+	"session_window_utilization":           {},
+	service.AccountExtraLastTokenRefreshAt: {},
+	service.AccountExtraLastTestAt:         {},
 }
 
 // NewAccountRepository 创建账户仓储实例。
@@ -454,10 +456,10 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
+	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", "", "")
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode, refreshStatus, testStatus string) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.client.Account.Query()
 
 	if platform != "" {
@@ -512,6 +514,12 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 			}
 		}))
 	}
+	if refreshStatus != "" {
+		q = q.Where(timestampExtraPresencePredicate(service.AccountExtraLastTokenRefreshAt, refreshStatus))
+	}
+	if testStatus != "" {
+		q = q.Where(timestampExtraPresencePredicate(service.AccountExtraLastTestAt, testStatus))
+	}
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -532,6 +540,24 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		return nil, nil, err
 	}
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+func timestampExtraPresencePredicate(key, filter string) dbpredicate.Account {
+	return dbpredicate.Account(func(s *entsql.Selector) {
+		path := sqljson.Path(key)
+		switch filter {
+		case service.AccountTimestampFilterSet:
+			s.Where(entsql.And(
+				sqljson.HasKey(dbaccount.FieldExtra, path),
+				entsql.Not(sqljson.ValueEQ(dbaccount.FieldExtra, "", path)),
+			))
+		case service.AccountTimestampFilterUnset:
+			s.Where(entsql.Or(
+				entsql.Not(sqljson.HasKey(dbaccount.FieldExtra, path)),
+				sqljson.ValueEQ(dbaccount.FieldExtra, "", path),
+			))
+		}
+	})
 }
 
 func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {

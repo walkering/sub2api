@@ -7,8 +7,11 @@ import { apiClient } from '../client'
 import type {
   ScheduledTestPlan,
   ScheduledTestResult,
+  AccountTestJob,
+  AccountTestJobSnapshot,
   CreateScheduledTestPlanRequest,
-  UpdateScheduledTestPlanRequest
+  UpdateScheduledTestPlanRequest,
+  CreateAccountTestJobRequest
 } from '@/types'
 
 /**
@@ -19,6 +22,13 @@ import type {
 export async function listByAccount(accountId: number): Promise<ScheduledTestPlan[]> {
   const { data } = await apiClient.get<ScheduledTestPlan[]>(
     `/admin/accounts/${accountId}/scheduled-test-plans`
+  )
+  return data ?? []
+}
+
+export async function listByGroup(groupId: number): Promise<ScheduledTestPlan[]> {
+  const { data } = await apiClient.get<ScheduledTestPlan[]>(
+    `/admin/groups/${groupId}/scheduled-test-plans`
   )
   return data ?? []
 }
@@ -74,12 +84,44 @@ export async function listResults(planId: number, limit?: number): Promise<Sched
   return data ?? []
 }
 
+export async function createGroupJob(
+  groupId: number,
+  req: CreateAccountTestJobRequest = {}
+): Promise<AccountTestJob> {
+  const { data } = await apiClient.post<AccountTestJob>(`/admin/groups/${groupId}/test-jobs`, req)
+  return data
+}
+
+export async function listGroupJobs(groupId: number, limit: number = 20): Promise<AccountTestJob[]> {
+  const { data } = await apiClient.get<AccountTestJob[]>(`/admin/groups/${groupId}/test-jobs`, {
+    params: { limit }
+  })
+  return data ?? []
+}
+
+export async function getJob(jobId: number): Promise<AccountTestJob> {
+  const { data } = await apiClient.get<AccountTestJob>(`/admin/test-jobs/${jobId}`)
+  return data
+}
+
+export async function getJobSnapshot(jobId: number, logLimit: number = 200): Promise<AccountTestJobSnapshot> {
+  const { data } = await apiClient.get<AccountTestJobSnapshot>(`/admin/test-jobs/${jobId}/snapshot`, {
+    params: { log_limit: logLimit }
+  })
+  return data
+}
+
 export const scheduledTestsAPI = {
   listByAccount,
+  listByGroup,
   create,
   update,
   delete: deletePlan,
-  listResults
+  listResults,
+  createGroupJob,
+  listGroupJobs,
+  getJob,
+  getJobSnapshot
 }
 
 export default scheduledTestsAPI

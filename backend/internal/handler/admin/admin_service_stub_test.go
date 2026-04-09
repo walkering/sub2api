@@ -225,7 +225,7 @@ func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, _ int
 	return nil
 }
 
-func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, int64, error) {
+func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, refreshStatus, testStatus string) ([]service.Account, int64, error) {
 	filtered := s.accounts
 	if groupID != 0 {
 		next := make([]service.Account, 0, len(filtered))
@@ -243,6 +243,28 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 						break
 					}
 				}
+			}
+		}
+		filtered = next
+	}
+	if refreshStatus != "" {
+		next := make([]service.Account, 0, len(filtered))
+		for _, account := range filtered {
+			value, _ := account.Extra[service.AccountExtraLastTokenRefreshAt].(string)
+			hasValue := strings.TrimSpace(value) != ""
+			if (refreshStatus == service.AccountTimestampFilterSet && hasValue) || (refreshStatus == service.AccountTimestampFilterUnset && !hasValue) {
+				next = append(next, account)
+			}
+		}
+		filtered = next
+	}
+	if testStatus != "" {
+		next := make([]service.Account, 0, len(filtered))
+		for _, account := range filtered {
+			value, _ := account.Extra[service.AccountExtraLastTestAt].(string)
+			hasValue := strings.TrimSpace(value) != ""
+			if (testStatus == service.AccountTimestampFilterSet && hasValue) || (testStatus == service.AccountTimestampFilterUnset && !hasValue) {
+				next = append(next, account)
 			}
 		}
 		filtered = next
