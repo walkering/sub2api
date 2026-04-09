@@ -9,7 +9,9 @@ import type {
   GroupPlatform,
   CreateGroupRequest,
   UpdateGroupRequest,
-  PaginatedResponse
+  PaginatedResponse,
+  GroupAccountModelRestrictionsRequest,
+  GroupAccountModelRestrictionsResult
 } from '@/types'
 
 /**
@@ -246,6 +248,22 @@ export async function getCapacitySummary(): Promise<
   return data
 }
 
+/**
+ * Bulk update account model restrictions for accounts bound to a group
+ * @param id - Group ID
+ * @param payload - Model restriction payload written to account credentials
+ */
+export async function updateAccountModelRestrictions(
+  id: number,
+  payload: GroupAccountModelRestrictionsRequest
+): Promise<GroupAccountModelRestrictionsResult> {
+  const { data } = await apiClient.post<GroupAccountModelRestrictionsResult>(
+    `/admin/groups/${id}/account-model-restrictions`,
+    payload
+  )
+  return data
+}
+
 export const groupsAPI = {
   list,
   getAll,
@@ -262,7 +280,8 @@ export const groupsAPI = {
   batchSetGroupRateMultipliers,
   updateSortOrder,
   getUsageSummary,
-  getCapacitySummary
+  getCapacitySummary,
+  updateAccountModelRestrictions
 }
 
 export default groupsAPI

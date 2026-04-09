@@ -201,15 +201,17 @@ func (h *OpenAIOAuthHandler) RefreshAccountToken(c *gin.Context) {
 // POST /api/v1/admin/openai/create-from-oauth
 func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 	var req struct {
-		SessionID   string  `json:"session_id" binding:"required"`
-		Code        string  `json:"code" binding:"required"`
-		State       string  `json:"state" binding:"required"`
-		RedirectURI string  `json:"redirect_uri"`
-		ProxyID     *int64  `json:"proxy_id"`
-		Name        string  `json:"name"`
-		Concurrency int     `json:"concurrency"`
-		Priority    int     `json:"priority"`
-		GroupIDs    []int64 `json:"group_ids"`
+		SessionID   string         `json:"session_id" binding:"required"`
+		Code        string         `json:"code" binding:"required"`
+		State       string         `json:"state" binding:"required"`
+		RedirectURI string         `json:"redirect_uri"`
+		ProxyID     *int64         `json:"proxy_id"`
+		Name        string         `json:"name"`
+		Concurrency int            `json:"concurrency"`
+		Priority    int            `json:"priority"`
+		GroupIDs    []int64        `json:"group_ids"`
+		Credentials map[string]any `json:"credentials"`
+		Extra       map[string]any `json:"extra"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -231,6 +233,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 
 	// Build credentials from token info
 	credentials := h.openaiOAuthService.BuildAccountCredentials(tokenInfo)
+	mergeMapAny(credentials, req.Credentials)
 
 	platform := oauthPlatformFromPath(c)
 
@@ -249,7 +252,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		Platform:    platform,
 		Type:        "oauth",
 		Credentials: credentials,
-		Extra:       nil,
+		Extra:       cloneMapAny(req.Extra),
 		ProxyID:     req.ProxyID,
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
@@ -261,4 +264,27 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 	}
 
 	response.Success(c, dto.AccountFromService(account))
+}
+
+func cloneMapAny(source map[string]any) map[string]any {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func mergeMapAny(dst map[string]any, src map[string]any) {
+	if dst == nil || len(src) == 0 {
+		return
+	}
+	for key, value := range src {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		dst[key] = value
+	}
 }

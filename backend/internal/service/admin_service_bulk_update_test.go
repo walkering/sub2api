@@ -262,3 +262,54 @@ func TestAdminService_TransferAccountsByGroup_MixedTypesRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "same type")
 	require.Empty(t, repo.bindGroupsCalls)
 }
+
+func TestAdminService_BulkUpdateGroupAccountModelRestrictions_Success(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		listByGroupData: map[int64][]Account{
+			10: {
+				{ID: 1, Status: StatusActive},
+				{ID: 2, Status: StatusActive},
+				{ID: 2, Status: StatusActive},
+			},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "g10"}},
+	}
+
+	result, err := svc.BulkUpdateGroupAccountModelRestrictions(context.Background(), 10, map[string]any{
+		"model_mapping": map[string]any{
+			"gpt-5.4": "gpt-5.4",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(10), result.GroupID)
+	require.Equal(t, 2, result.TargetCount)
+	require.Equal(t, 2, result.Success)
+	require.Equal(t, 0, result.Failed)
+	require.ElementsMatch(t, []int64{1, 2}, result.SuccessIDs)
+	require.Empty(t, result.FailedIDs)
+	require.Len(t, result.Results, 2)
+	require.ElementsMatch(t, []int64{1, 2}, repo.bulkUpdateIDs)
+}
+
+func TestAdminService_BulkUpdateGroupAccountModelRestrictions_EmptyGroup(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		listByGroupData: map[int64][]Account{
+			10: {},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "g10"}},
+	}
+
+	result, err := svc.BulkUpdateGroupAccountModelRestrictions(context.Background(), 10, map[string]any{
+		"model_mapping": map[string]any{},
+	})
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no bound accounts")
+	require.Empty(t, repo.bulkUpdateIDs)
+}

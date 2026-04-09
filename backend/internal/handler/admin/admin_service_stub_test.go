@@ -225,6 +225,21 @@ func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, _ int
 	return nil
 }
 
+func (s *stubAdminService) BulkUpdateGroupAccountModelRestrictions(_ context.Context, groupID int64, credentials map[string]any) (*service.GroupBulkUpdateAccountModelRestrictionsResult, error) {
+	accountIDs := make([]int64, 0, len(s.accounts))
+	for i := range s.accounts {
+		accountIDs = append(accountIDs, s.accounts[i].ID)
+	}
+	return &service.GroupBulkUpdateAccountModelRestrictionsResult{
+		GroupID:     groupID,
+		TargetCount: len(accountIDs),
+		Success:     len(accountIDs),
+		SuccessIDs:  accountIDs,
+		FailedIDs:   []int64{},
+		Results:     []service.BulkUpdateAccountResult{},
+	}, nil
+}
+
 func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, refreshStatus, testStatus string) ([]service.Account, int64, error) {
 	filtered := s.accounts
 	if groupID != 0 {

@@ -228,6 +228,13 @@
                 <span class="text-xs">{{ t('admin.groups.rateMultipliers') }}</span>
               </button>
               <button
+                @click="handleAccountModelRestrictions(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-amber-600 dark:hover:bg-dark-700 dark:hover:text-amber-400"
+              >
+                <Icon name="filter" size="sm" />
+                <span class="text-xs">{{ t('admin.groups.accountModelRestrictions.action') }}</span>
+              </button>
+              <button
                 @click="handleScheduledTests(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -1814,6 +1821,12 @@
       @close="showRateMultipliersModal = false"
       @success="loadGroups"
     />
+    <GroupAccountModelRestrictionsModal
+      :show="showAccountModelRestrictionsModal"
+      :group="accountModelRestrictionsGroup"
+      @close="closeAccountModelRestrictionsModal"
+      @updated="loadGroups"
+    />
     <GroupScheduledTestsDialog
       :show="showScheduledTestsDialog"
       :groups="groups"
@@ -1848,6 +1861,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import GroupAccountModelRestrictionsModal from '@/components/admin/group/GroupAccountModelRestrictionsModal.vue'
 import GroupRateMultipliersModal from '@/components/admin/group/GroupRateMultipliersModal.vue'
 import GroupScheduledTestsDialog from '@/components/admin/group/GroupScheduledTestsDialog.vue'
 import GroupTestLogsDialog from '@/components/admin/group/GroupTestLogsDialog.vue'
@@ -2032,6 +2046,8 @@ const editingGroup = ref<AdminGroup | null>(null)
 const deletingGroup = ref<AdminGroup | null>(null)
 const showRateMultipliersModal = ref(false)
 const rateMultipliersGroup = ref<AdminGroup | null>(null)
+const showAccountModelRestrictionsModal = ref(false)
+const accountModelRestrictionsGroup = ref<AdminGroup | null>(null)
 const sortableGroups = ref<AdminGroup[]>([])
 const showScheduledTestsDialog = ref(false)
 const scheduledTestsGroup = ref<AdminGroup | null>(null)
@@ -2591,6 +2607,16 @@ const handleUpdateGroup = async () => {
 const handleRateMultipliers = (group: AdminGroup) => {
   rateMultipliersGroup.value = group
   showRateMultipliersModal.value = true
+}
+
+const handleAccountModelRestrictions = (group: AdminGroup) => {
+  accountModelRestrictionsGroup.value = group
+  showAccountModelRestrictionsModal.value = true
+}
+
+const closeAccountModelRestrictionsModal = () => {
+  showAccountModelRestrictionsModal.value = false
+  accountModelRestrictionsGroup.value = null
 }
 
 const handleScheduledTests = (group: AdminGroup) => {

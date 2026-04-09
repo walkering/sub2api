@@ -46,6 +46,7 @@ type AdminService interface {
 	GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error)
 	ClearGroupRateMultipliers(ctx context.Context, groupID int64) error
 	BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error
+	BulkUpdateGroupAccountModelRestrictions(ctx context.Context, groupID int64, credentials map[string]any) (*GroupBulkUpdateAccountModelRestrictionsResult, error)
 	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
 
 	// API Key management (admin)
@@ -280,6 +281,18 @@ type TransferAccountsByGroupResult struct {
 	MovedCount     int     `json:"moved_count"`
 	AccountType    string  `json:"account_type,omitempty"`
 	AccountIDs     []int64 `json:"account_ids"`
+}
+
+// GroupBulkUpdateAccountModelRestrictionsResult is the aggregated response for
+// bulk updating account model restrictions within a group.
+type GroupBulkUpdateAccountModelRestrictionsResult struct {
+	GroupID     int64                     `json:"group_id"`
+	TargetCount int                       `json:"target_count"`
+	Success     int                       `json:"success"`
+	Failed      int                       `json:"failed"`
+	SuccessIDs  []int64                   `json:"success_ids"`
+	FailedIDs   []int64                   `json:"failed_ids"`
+	Results     []BulkUpdateAccountResult `json:"results"`
 }
 
 // AdminUpdateAPIKeyGroupIDResult is the result of AdminUpdateAPIKeyGroupID.
@@ -1962,6 +1975,65 @@ func (s *adminServiceImpl) TransferAccountsByGroup(ctx context.Context, input *T
 		MovedCount:     len(movedIDs),
 		AccountType:    candidateType,
 		AccountIDs:     movedIDs,
+	}, nil
+}
+
+func (s *adminServiceImpl) BulkUpdateGroupAccountModelRestrictions(ctx context.Context, groupID int64, credentials map[string]any) (*GroupBulkUpdateAccountModelRestrictionsResult, error) {
+	if groupID <= 0 {
+		return nil, infraerrors.BadRequest("GROUP_ACCOUNT_MODEL_RESTRICTIONS_INVALID", "group_id must be positive")
+	}
+	if len(credentials) == 0 {
+		return nil, infraerrors.BadRequest("GROUP_ACCOUNT_MODEL_RESTRICTIONS_INVALID", "credentials is required")
+	}
+	if _, ok := credentials["model_mapping"]; !ok {
+		return nil, infraerrors.BadRequest("GROUP_ACCOUNT_MODEL_RESTRICTIONS_INVALID", "credentials.model_mapping is required")
+	}
+
+	if err := s.validateGroupIDsExist(ctx, []int64{groupID}); err != nil {
+		return nil, err
+	}
+
+	accounts, err := s.accountRepo.ListByGroup(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return nil, infraerrors.BadRequest("GROUP_ACCOUNT_MODEL_RESTRICTIONS_EMPTY", "current group has no bound accounts")
+	}
+
+	accountIDs := make([]int64, 0, len(accounts))
+	seen := make(map[int64]struct{}, len(accounts))
+	for i := range accounts {
+		accountID := accounts[i].ID
+		if accountID <= 0 {
+			continue
+		}
+		if _, exists := seen[accountID]; exists {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		accountIDs = append(accountIDs, accountID)
+	}
+	if len(accountIDs) == 0 {
+		return nil, infraerrors.BadRequest("GROUP_ACCOUNT_MODEL_RESTRICTIONS_EMPTY", "current group has no bound accounts")
+	}
+
+	bulkResult, err := s.BulkUpdateAccounts(ctx, &BulkUpdateAccountsInput{
+		AccountIDs:  accountIDs,
+		Credentials: credentials,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &GroupBulkUpdateAccountModelRestrictionsResult{
+		GroupID:     groupID,
+		TargetCount: len(accountIDs),
+		Success:     bulkResult.Success,
+		Failed:      bulkResult.Failed,
+		SuccessIDs:  append([]int64(nil), bulkResult.SuccessIDs...),
+		FailedIDs:   append([]int64(nil), bulkResult.FailedIDs...),
+		Results:     append([]BulkUpdateAccountResult(nil), bulkResult.Results...),
 	}, nil
 }
 

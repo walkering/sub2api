@@ -419,6 +419,26 @@ export interface AdminGroup extends Group {
   sort_order: number
 }
 
+export interface BulkUpdateAccountResult {
+  account_id: number
+  success: boolean
+  error?: string
+}
+
+export interface GroupAccountModelRestrictionsRequest {
+  credentials: Record<string, unknown>
+}
+
+export interface GroupAccountModelRestrictionsResult {
+  group_id: number
+  target_count: number
+  success: number
+  failed: number
+  success_ids: number[]
+  failed_ids: number[]
+  results: BulkUpdateAccountResult[]
+}
+
 export interface ApiKey {
   id: number
   user_id: number

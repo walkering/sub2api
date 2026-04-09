@@ -448,6 +448,12 @@ type BatchSetGroupRateMultipliersRequest struct {
 	Entries []service.GroupRateMultiplierInput `json:"entries" binding:"required"`
 }
 
+// BulkUpdateGroupAccountModelRestrictionsRequest represents bulk model restriction updates
+// for accounts currently bound to a group.
+type BulkUpdateGroupAccountModelRestrictionsRequest struct {
+	Credentials map[string]any `json:"credentials" binding:"required"`
+}
+
 // BatchSetGroupRateMultipliers handles batch setting rate multipliers for a group
 // PUT /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
@@ -469,6 +475,39 @@ func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "Rate multipliers updated successfully"})
+}
+
+// BulkUpdateAccountModelRestrictions handles bulk updating account model restrictions
+// for accounts currently bound to the specified group.
+// POST /api/v1/admin/groups/:id/account-model-restrictions
+func (h *GroupHandler) BulkUpdateAccountModelRestrictions(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+
+	var req BulkUpdateGroupAccountModelRestrictionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.Credentials) == 0 {
+		response.BadRequest(c, "credentials is required")
+		return
+	}
+	if _, ok := req.Credentials["model_mapping"]; !ok {
+		response.BadRequest(c, "credentials.model_mapping is required")
+		return
+	}
+
+	result, err := h.adminService.BulkUpdateGroupAccountModelRestrictions(c.Request.Context(), groupID, req.Credentials)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
 }
 
 // UpdateSortOrderRequest represents the request to update group sort orders
