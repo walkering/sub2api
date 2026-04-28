@@ -4,8 +4,10 @@ package pagination
 import "strings"
 
 const (
-	SortOrderAsc  = "asc"
-	SortOrderDesc = "desc"
+	SortOrderAsc    = "asc"
+	SortOrderDesc   = "desc"
+	DefaultPageSize = 20
+	MaxPageSize     = 10000
 )
 
 // PaginationParams 分页参数
@@ -28,7 +30,7 @@ type PaginationResult struct {
 func DefaultPagination() PaginationParams {
 	return PaginationParams{
 		Page:      1,
-		PageSize:  20,
+		PageSize:  DefaultPageSize,
 		SortOrder: SortOrderDesc,
 	}
 }
@@ -44,10 +46,10 @@ func (p PaginationParams) Offset() int {
 // Limit 获取限制数
 func (p PaginationParams) Limit() int {
 	if p.PageSize < 1 {
-		return 20
+		return DefaultPageSize
 	}
-	if p.PageSize > 1000 {
-		return 1000
+	if p.PageSize > MaxPageSize {
+		return MaxPageSize
 	}
 	return p.PageSize
 }

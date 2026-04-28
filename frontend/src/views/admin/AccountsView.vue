@@ -683,7 +683,8 @@ const selectedTestTargets = computed(() => {
     const account = accountMap.get(id)
     return {
       id,
-      name: account?.name || `#${id}`
+      name: account?.name || `#${id}`,
+      platform: account?.platform
     }
   })
 })

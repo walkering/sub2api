@@ -3433,7 +3433,7 @@ export default {
       bulkTest: {
         title: 'Bulk Test Accounts',
         selectedCount: '{count} account(s) selected for bulk testing',
-        defaultModelHint: 'Bulk testing reuses the existing test endpoint and runs accounts sequentially with the platform default test model.',
+        modelHint: 'You can choose a test model for each account. Batch testing runs sequentially with the currently selected model for each row.',
         runningSummary: 'Testing account {current} / {total}',
         pendingMessage: 'Waiting to start',
         runningMessage: 'Queued and preparing test...',
@@ -3441,6 +3441,8 @@ export default {
         successWithModel: 'Test succeeded with model: {model}',
         imageReceived: 'Received {count} test image(s)',
         imageGenerated: 'Test succeeded and returned {count} image(s)',
+        noModels: 'No models available for this account',
+        loadModelsFailed: 'Failed to load models',
         summary: {
           pending: 'Pending',
           running: 'Running',

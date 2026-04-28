@@ -13,7 +13,7 @@
               {{ t('admin.accounts.bulkTest.selectedCount', { count: results.length }) }}
             </div>
             <div class="mt-1 text-xs text-primary-700 dark:text-primary-300">
-              {{ t('admin.accounts.bulkTest.defaultModelHint') }}
+              {{ t('admin.accounts.bulkTest.modelHint') }}
             </div>
           </div>
           <div v-if="running" class="flex items-center gap-2 text-sm text-primary-800 dark:text-primary-200">
@@ -57,8 +57,32 @@
               {{ statusLabel(result.status) }}
             </span>
           </div>
-          <div class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            {{ result.message || t('admin.accounts.bulkTest.pendingMessage') }}
+          <div class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_240px] md:items-start">
+            <div class="text-sm text-gray-600 dark:text-gray-300">
+              {{ result.message || t('admin.accounts.bulkTest.pendingMessage') }}
+            </div>
+            <div class="space-y-1">
+              <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
+                {{ t('admin.accounts.selectTestModel') }}
+              </div>
+              <Select
+                v-model="result.selectedModelId"
+                :options="result.availableModels"
+                :disabled="running || result.loadingModels || result.availableModels.length === 0"
+                value-key="id"
+                label-key="display_name"
+                :placeholder="result.loadingModels ? `${t('common.loading')}...` : t('admin.accounts.selectTestModel')"
+              />
+              <div v-if="result.loadingModels" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('common.loading') }}...
+              </div>
+              <div v-else-if="result.modelError" class="text-xs text-red-500 dark:text-red-400">
+                {{ result.modelError }}
+              </div>
+              <div v-else-if="result.availableModels.length === 0" class="text-xs text-amber-600 dark:text-amber-400">
+                {{ t('admin.accounts.bulkTest.noModels') }}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -74,10 +98,10 @@
         </button>
         <button
           @click="startBatchTest"
-          :disabled="running || results.length === 0"
+          :disabled="!canStartBatchTest"
           :class="[
             'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-            running || results.length === 0
+            !canStartBatchTest
               ? 'cursor-not-allowed bg-primary-400 text-white'
               : 'bg-primary-500 text-white hover:bg-primary-600'
           ]"
@@ -95,19 +119,27 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select from '@/components/common/Select.vue'
 import { Icon } from '@/components/icons'
+import { adminAPI } from '@/api/admin'
 import { streamAccountTest, type AccountTestStreamEvent } from '@/utils/accountTestStream'
+import type { AccountPlatform, ClaudeModel } from '@/types'
 
 type ResultStatus = 'pending' | 'running' | 'success' | 'error'
 
 interface BatchTestTarget {
   id: number
   name: string
+  platform?: AccountPlatform
 }
 
 interface BatchTestResult extends BatchTestTarget {
   status: ResultStatus
   message: string
+  availableModels: ClaudeModel[]
+  selectedModelId: string
+  loadingModels: boolean
+  modelError: string
 }
 
 const props = defineProps<{
@@ -125,20 +157,29 @@ const { t } = useI18n()
 const results = ref<BatchTestResult[]>([])
 const running = ref(false)
 const activeRunOrdinal = ref(0)
+const modelLoadToken = ref(0)
 let abortController: AbortController | null = null
+const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 
 const pendingCount = computed(() => results.value.filter((item) => item.status === 'pending').length)
 const runningCount = computed(() => results.value.filter((item) => item.status === 'running').length)
 const successCount = computed(() => results.value.filter((item) => item.status === 'success').length)
 const errorCount = computed(() => results.value.filter((item) => item.status === 'error').length)
+const canStartBatchTest = computed(() =>
+  !running.value &&
+  results.value.length > 0 &&
+  results.value.every((item) => !item.loadingModels && !!item.selectedModelId)
+)
 
 watch(
   () => props.show,
-  (show) => {
+  async (show) => {
     if (show) {
       resetResults()
+      await loadAvailableModels()
       return
     }
+    modelLoadToken.value += 1
     abortRun()
   },
   { immediate: true }
@@ -149,6 +190,20 @@ function resetResults() {
   results.value = props.accounts.map((account) => ({
     id: account.id,
     name: account.name,
+    status: 'pending',
+    message: '',
+    platform: account.platform,
+    availableModels: [],
+    selectedModelId: '',
+    loadingModels: true,
+    modelError: ''
+  }))
+}
+
+function resetRunState() {
+  activeRunOrdinal.value = 0
+  results.value = results.value.map((item) => ({
+    ...item,
     status: 'pending',
     message: ''
   }))
@@ -168,6 +223,63 @@ function handleClose() {
 
 function updateResult(id: number, patch: Partial<BatchTestResult>) {
   results.value = results.value.map((item) => (item.id === id ? { ...item, ...patch } : item))
+}
+
+function sortTestModels(models: ClaudeModel[], platform?: AccountPlatform) {
+  if (platform !== 'gemini' && platform !== 'antigravity') {
+    return [...models]
+  }
+
+  const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
+  return [...models].sort((a, b) => {
+    const aPriority = priorityMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
+    const bPriority = priorityMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
+    if (aPriority !== bPriority) return aPriority - bPriority
+    return a.display_name.localeCompare(b.display_name)
+  })
+}
+
+function getDefaultModelId(models: ClaudeModel[], platform?: AccountPlatform) {
+  if (models.length === 0) return ''
+  if (platform === 'gemini' || platform === 'antigravity') {
+    return models[0]?.id || ''
+  }
+  const sonnetModel = models.find((model) => model.id.includes('sonnet'))
+  return sonnetModel?.id || models[0]?.id || ''
+}
+
+async function loadAvailableModels() {
+  const currentToken = modelLoadToken.value + 1
+  modelLoadToken.value = currentToken
+
+  await Promise.all(results.value.map(async (result) => {
+    updateResult(result.id, {
+      loadingModels: true,
+      modelError: '',
+      availableModels: [],
+      selectedModelId: ''
+    })
+
+    try {
+      const models = await adminAPI.accounts.getAvailableModels(result.id)
+      if (modelLoadToken.value !== currentToken) return
+
+      const sortedModels = sortTestModels(models, result.platform)
+      updateResult(result.id, {
+        availableModels: sortedModels,
+        selectedModelId: getDefaultModelId(sortedModels, result.platform),
+        loadingModels: false,
+        modelError: ''
+      })
+    } catch (error) {
+      if (modelLoadToken.value !== currentToken) return
+      console.error('Failed to load available models for batch account test:', error)
+      updateResult(result.id, {
+        loadingModels: false,
+        modelError: t('admin.accounts.bulkTest.loadModelsFailed')
+      })
+    }
+  }))
 }
 
 function statusLabel(status: ResultStatus) {
@@ -213,13 +325,13 @@ function buildSuccessMessage(model: string, content: string, imageCount: number)
 async function startBatchTest() {
   if (running.value || props.accounts.length === 0) return
 
-  resetResults()
+  resetRunState()
   running.value = true
   abortRun()
   abortController = new AbortController()
   const token = localStorage.getItem('auth_token')
   let finished = false
-  const targets = results.value.map(({ id, name }) => ({ id, name }))
+  const targets = results.value.map(({ id, name, selectedModelId }) => ({ id, name, selectedModelId }))
 
   try {
     for (const [index, account] of targets.entries()) {
@@ -239,6 +351,7 @@ async function startBatchTest() {
         const result = await streamAccountTest({
           accountId: account.id,
           authToken: token,
+          modelId: account.selectedModelId,
           signal: abortController.signal,
           onEvent: (event: AccountTestStreamEvent) => {
             if (event.type === 'test_start') {

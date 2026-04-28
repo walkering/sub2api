@@ -8,7 +8,9 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/suite"
@@ -217,6 +219,11 @@ func (s *AccountRepoSuite) TestDelete() {
 
 	_, err = s.repo.GetByID(s.ctx, account.ID)
 	s.Require().Error(err, "expected error after delete")
+
+	_, err = s.client.Account.Query().
+		Where(dbaccount.IDEQ(account.ID)).
+		Only(mixins.SkipSoftDelete(s.ctx))
+	s.Require().True(dbent.IsNotFound(err), "expected account row to be hard deleted")
 }
 
 func (s *AccountRepoSuite) TestDelete_WithGroupBindings() {

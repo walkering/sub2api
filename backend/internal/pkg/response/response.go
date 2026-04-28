@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
 )
@@ -169,7 +170,7 @@ func PaginatedWithResult(c *gin.Context, items any, pagination *PaginationResult
 // ParsePagination 解析分页参数
 func ParsePagination(c *gin.Context) (page, pageSize int) {
 	page = 1
-	pageSize = 20
+	pageSize = pagination.DefaultPageSize
 
 	if p := c.Query("page"); p != "" {
 		if val, err := parseInt(p); err == nil && val > 0 {
@@ -179,16 +180,23 @@ func ParsePagination(c *gin.Context) (page, pageSize int) {
 
 	// 支持 page_size 和 limit 两种参数名
 	if ps := c.Query("page_size"); ps != "" {
-		if val, err := parseInt(ps); err == nil && val > 0 && val <= 1000 {
-			pageSize = val
+		if val, err := parseInt(ps); err == nil && val > 0 {
+			pageSize = minInt(val, pagination.MaxPageSize)
 		}
 	} else if l := c.Query("limit"); l != "" {
-		if val, err := parseInt(l); err == nil && val > 0 && val <= 1000 {
-			pageSize = val
+		if val, err := parseInt(l); err == nil && val > 0 {
+			pageSize = minInt(val, pagination.MaxPageSize)
 		}
 	}
 
 	return page, pageSize
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func parseInt(s string) (int, error) {

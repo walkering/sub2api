@@ -55,8 +55,8 @@ func TestPaginationParamsLimit(t *testing.T) {
 		{name: "non-positive falls back to default", pageSize: 0, want: 20},
 		{name: "negative falls back to default", pageSize: -1, want: 20},
 		{name: "normal value keeps", pageSize: 50, want: 50},
-		{name: "max value keeps", pageSize: 1000, want: 1000},
-		{name: "beyond max clamps to 1000", pageSize: 1500, want: 1000},
+		{name: "max value keeps", pageSize: 10000, want: 10000},
+		{name: "beyond max clamps to 10000", pageSize: 15000, want: 10000},
 	}
 
 	for _, tt := range tests {
