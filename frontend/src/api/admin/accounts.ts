@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type {
   Account,
+  AccountPlatform,
   CreateAccountRequest,
   UpdateAccountRequest,
   PaginatedResponse,
@@ -19,6 +20,12 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse
 } from '@/types'
+
+export interface AccountTestTarget {
+  id: number
+  name: string
+  platform?: AccountPlatform
+}
 
 /**
  * List all accounts with pagination
@@ -53,6 +60,23 @@ export async function list(
       ...filters
     },
     signal: options?.signal
+  })
+  return data
+}
+
+export async function getTestTargets(filters?: {
+  platform?: string
+  type?: string
+  status?: string
+  group?: string
+  search?: string
+  privacy_mode?: string
+  plan_type?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}): Promise<AccountTestTarget[]> {
+  const { data } = await apiClient.get<AccountTestTarget[]>('/admin/accounts/test-targets', {
+    params: filters
   })
   return data
 }
@@ -634,6 +658,7 @@ export async function setPrivacy(id: number): Promise<Account> {
 export const accountsAPI = {
   list,
   listWithEtag,
+  getTestTargets,
   getById,
   create,
   update,

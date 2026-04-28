@@ -127,6 +127,12 @@
                 {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
               </button>
             </template>
+            <template #afterCreate>
+              <button @click="openFilteredBulkTestModal" :disabled="loadingBulkTestTargets" class="btn btn-secondary">
+                <Icon name="play" size="md" class="mr-1.5" />
+                <span>{{ loadingBulkTestTargets ? t('admin.accounts.testing') : t('admin.accounts.batchTestFiltered') }}</span>
+              </button>
+            </template>
           </AccountTableActions>
         </div>
         <div
@@ -300,7 +306,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <BatchAccountTestModal :show="showBulkTest" :accounts="selectedTestTargets" @close="closeBulkTestModal" @completed="handleBulkTestCompleted" />
+    <BatchAccountTestModal :show="showBulkTest" :accounts="bulkTestTargets" @close="closeBulkTestModal" @completed="handleBulkTestCompleted" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
@@ -359,6 +365,7 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { AccountTestTarget } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -397,6 +404,7 @@ const showReAuth = ref(false)
 const showTest = ref(false)
 const showBulkTest = ref(false)
 const bulkTestNeedsReload = ref(false)
+const loadingBulkTestTargets = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
@@ -688,6 +696,7 @@ const selectedTestTargets = computed(() => {
     }
   })
 })
+const bulkTestTargets = ref<AccountTestTarget[]>([])
 
 const swipeVirtualContext: SwipeSelectVirtualContext = {
   getVirtualizer: () => dataTableRef.value?.virtualizer ?? null,
@@ -1135,11 +1144,31 @@ const handleBulkRefreshToken = async () => {
 }
 const openBulkTestModal = () => {
   if (selIds.value.length === 0) return
+  bulkTestTargets.value = selectedTestTargets.value
   bulkTestNeedsReload.value = false
   showBulkTest.value = true
 }
+const openFilteredBulkTestModal = async () => {
+  loadingBulkTestTargets.value = true
+  try {
+    const targets = await adminAPI.accounts.getTestTargets(buildAccountQueryFilters())
+    if (targets.length === 0) {
+      appStore.showError(t('admin.accounts.batchTestEmpty'))
+      return
+    }
+    bulkTestTargets.value = targets
+    bulkTestNeedsReload.value = false
+    showBulkTest.value = true
+  } catch (error) {
+    console.error('Failed to load filtered account test targets:', error)
+    appStore.showError(t('admin.accounts.batchTestFilteredFailed'))
+  } finally {
+    loadingBulkTestTargets.value = false
+  }
+}
 const closeBulkTestModal = () => {
   showBulkTest.value = false
+  bulkTestTargets.value = []
   if (bulkTestNeedsReload.value) {
     bulkTestNeedsReload.value = false
     reload()

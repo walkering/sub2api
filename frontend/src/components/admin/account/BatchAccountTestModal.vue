@@ -126,6 +126,11 @@ import { streamAccountTest, type AccountTestStreamEvent } from '@/utils/accountT
 import type { AccountPlatform, ClaudeModel } from '@/types'
 
 type ResultStatus = 'pending' | 'running' | 'success' | 'error'
+type SelectableClaudeModel = ClaudeModel & Record<string, unknown>
+
+function toSelectableClaudeModel(model: ClaudeModel): SelectableClaudeModel {
+  return { ...model }
+}
 
 interface BatchTestTarget {
   id: number
@@ -136,7 +141,7 @@ interface BatchTestTarget {
 interface BatchTestResult extends BatchTestTarget {
   status: ResultStatus
   message: string
-  availableModels: ClaudeModel[]
+  availableModels: SelectableClaudeModel[]
   selectedModelId: string
   loadingModels: boolean
   modelError: string
@@ -225,9 +230,9 @@ function updateResult(id: number, patch: Partial<BatchTestResult>) {
   results.value = results.value.map((item) => (item.id === id ? { ...item, ...patch } : item))
 }
 
-function sortTestModels(models: ClaudeModel[], platform?: AccountPlatform) {
+function sortTestModels(models: ClaudeModel[], platform?: AccountPlatform): SelectableClaudeModel[] {
   if (platform !== 'gemini' && platform !== 'antigravity') {
-    return [...models]
+    return models.map(toSelectableClaudeModel)
   }
 
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
@@ -236,10 +241,10 @@ function sortTestModels(models: ClaudeModel[], platform?: AccountPlatform) {
     const bPriority = priorityMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
     if (aPriority !== bPriority) return aPriority - bPriority
     return a.display_name.localeCompare(b.display_name)
-  })
+  }).map(toSelectableClaudeModel)
 }
 
-function getDefaultModelId(models: ClaudeModel[], platform?: AccountPlatform) {
+function getDefaultModelId(models: SelectableClaudeModel[], platform?: AccountPlatform) {
   if (models.length === 0) return ''
   if (platform === 'gemini' || platform === 'antigravity') {
     return models[0]?.id || ''

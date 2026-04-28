@@ -79,6 +79,12 @@ type DataImportError struct {
 	Message  string `json:"message"`
 }
 
+type AccountTestTarget struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+}
+
 func buildProxyKey(protocol, host string, port int, username, password string) string {
 	return fmt.Sprintf("%s|%s|%d|%s|%s", strings.TrimSpace(protocol), strings.TrimSpace(host), port, strings.TrimSpace(username), strings.TrimSpace(password))
 }
@@ -170,6 +176,25 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	}
 
 	response.Success(c, payload)
+}
+
+func (h *AccountHandler) ListTestTargets(c *gin.Context) {
+	accounts, err := h.resolveExportAccounts(c.Request.Context(), nil, c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	targets := make([]AccountTestTarget, 0, len(accounts))
+	for i := range accounts {
+		targets = append(targets, AccountTestTarget{
+			ID:       accounts[i].ID,
+			Name:     accounts[i].Name,
+			Platform: accounts[i].Platform,
+		})
+	}
+
+	response.Success(c, targets)
 }
 
 func (h *AccountHandler) ImportData(c *gin.Context) {
