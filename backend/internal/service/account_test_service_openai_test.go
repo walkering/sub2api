@@ -65,6 +65,7 @@ type openAIAccountTestRepo struct {
 	rateLimitedID  int64
 	rateLimitedAt  *time.Time
 	clearedErrorID int64
+	deletedID      int64
 	setErrorID     int64
 	setErrorMsg    string
 }
@@ -82,6 +83,11 @@ func (r *openAIAccountTestRepo) SetRateLimited(_ context.Context, id int64, rese
 
 func (r *openAIAccountTestRepo) ClearError(_ context.Context, id int64) error {
 	r.clearedErrorID = id
+	return nil
+}
+
+func (r *openAIAccountTestRepo) Delete(_ context.Context, id int64) error {
+	r.deletedID = id
 	return nil
 }
 
@@ -297,4 +303,53 @@ func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 	require.Zero(t, repo.rateLimitedID)
 	require.Zero(t, repo.clearedErrorID)
 	require.Nil(t, account.RateLimitResetAt)
+}
+
+func TestAccountTestService_OpenAI401DeactivatedDeletesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusUnauthorized, `{"error":{"message":"Your OpenAI account has been deactivated, please check your email for more information. If you feel this is an error, contact us through our help center at help.openai.com.","type":"invalid_request_error","code":"account_deactivated","param":null},"status":401}`)
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
+	account := &Account{
+		ID:          81,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+	require.Error(t, err)
+	require.Equal(t, account.ID, repo.deletedID)
+	require.Zero(t, repo.setErrorID)
+	require.Zero(t, repo.rateLimitedID)
+}
+
+func TestAccountTestService_OpenAICompact401DeactivatedDeletesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusUnauthorized, `{"error":{"message":"Your OpenAI account has been deactivated, please check your email for more information.","type":"invalid_request_error","code":"account_deactivated","param":null},"status":401}`)
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
+	account := &Account{
+		ID:          82,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+
+	err := svc.testOpenAICompactConnection(ctx, account, "gpt-5.4")
+	require.Error(t, err)
+	require.Equal(t, account.ID, repo.deletedID)
+	require.Zero(t, repo.setErrorID)
 }

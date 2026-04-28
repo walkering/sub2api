@@ -1777,7 +1777,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPurchaseSubscriptionEnabled:              "false",
 		SettingKeyPurchaseSubscriptionURL:                  "",
 		SettingKeyTableDefaultPageSize:                     "20",
-		SettingKeyTablePageSizeOptions:                     "[10,20,50,100]",
+		SettingKeyTablePageSizeOptions:                     "[10,20,50,100,500,1000,2000,5000,10000]",
 		SettingKeyCustomMenuItems:                          "[]",
 		SettingKeyCustomEndpoints:                          "[]",
 		SettingKeyWeChatConnectEnabled:                     "false",
@@ -2406,9 +2406,31 @@ func parseTablePreferences(defaultPageSizeRaw, optionsRaw string) (int, []int) {
 	return normalizeTablePreferences(defaultPageSize, options)
 }
 
+var requiredTablePageSizeOptions = []int{500, 1000, 2000, 5000, 10000}
+
+var defaultTablePageSizeOptions = []int{10, 20, 50, 100, 500, 1000, 2000, 5000, 10000}
+
+func mergeRequiredTablePageSizeOptions(options []int) []int {
+	merged := make([]int, 0, len(options)+len(requiredTablePageSizeOptions))
+	merged = append(merged, options...)
+	merged = append(merged, requiredTablePageSizeOptions...)
+
+	seen := make(map[int]struct{}, len(merged))
+	unique := make([]int, 0, len(merged))
+	for _, option := range merged {
+		if _, ok := seen[option]; ok {
+			continue
+		}
+		seen[option] = struct{}{}
+		unique = append(unique, option)
+	}
+	sort.Ints(unique)
+	return unique
+}
+
 func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) {
 	const minPageSize = 5
-	const maxPageSize = 1000
+	const maxPageSize = 10000
 	const fallbackPageSize = 20
 
 	seen := make(map[int]struct{}, len(options))
@@ -2430,7 +2452,9 @@ func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) 
 	}
 
 	if len(normalizedOptions) == 0 {
-		normalizedOptions = []int{10, 20, 50}
+		normalizedOptions = append([]int(nil), defaultTablePageSizeOptions...)
+	} else {
+		normalizedOptions = mergeRequiredTablePageSizeOptions(normalizedOptions)
 	}
 
 	return defaultPageSize, normalizedOptions

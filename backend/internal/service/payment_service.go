@@ -41,7 +41,7 @@ const (
 	paymentGraceMinutes = 5
 
 	defaultPageSize    = 20
-	maxPageSize        = 100
+	maxPageSize        = 10000
 	topUsersLimit      = 10
 	amountToleranceCNY = 0.01
 

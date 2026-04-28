@@ -28,7 +28,7 @@ func TestOpsServiceListSystemLogs_DefaultClampAndSuccess(t *testing.T) {
 
 	out, err := svc.ListSystemLogs(context.Background(), &OpsSystemLogFilter{
 		Page:     0,
-		PageSize: 999,
+		PageSize: 10001,
 	})
 	if err != nil {
 		t.Fatalf("ListSystemLogs() error: %v", err)
@@ -36,7 +36,7 @@ func TestOpsServiceListSystemLogs_DefaultClampAndSuccess(t *testing.T) {
 	if gotFilter == nil {
 		t.Fatalf("expected repository to receive filter")
 	}
-	if gotFilter.Page != 1 || gotFilter.PageSize != 200 {
+	if gotFilter.Page != 1 || gotFilter.PageSize != 10000 {
 		t.Fatalf("filter normalized unexpectedly: page=%d pageSize=%d", gotFilter.Page, gotFilter.PageSize)
 	}
 	if out.Total != 1 || len(out.Logs) != 1 {

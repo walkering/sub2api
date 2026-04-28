@@ -218,6 +218,9 @@ func (Account) Edges() []ent.Edge {
 // 每个索引对应一个常用的查询条件。
 func (Account) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("name").
+			Unique().
+			Annotations(entsql.IndexWhere("deleted_at IS NULL")),
 		index.Fields("platform"),            // 按平台筛选
 		index.Fields("type"),                // 按认证类型筛选
 		index.Fields("status"),              // 按状态筛选

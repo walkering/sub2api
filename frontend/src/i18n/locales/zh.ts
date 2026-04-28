@@ -2630,6 +2630,7 @@ export default {
       refreshCookie: '刷新 Cookie',
       testAccount: '测试账号',
       searchAccounts: '搜索账号...',
+      searchPlanType: '筛选 Plan Type...',
       notes: '备注',
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',
@@ -2912,6 +2913,7 @@ export default {
         selectCurrentPage: '本页全选',
         clear: '清除选择',
         edit: '批量编辑账号',
+        test: '批量测试',
         delete: '批量删除',
         enableScheduling: '批量启用调度',
         disableScheduling: '批量停止调度',
@@ -3556,6 +3558,24 @@ export default {
       imageTestMode: '模式：生图测试',
       imagePreview: '生成结果：',
       imageReceived: '已收到第 {count} 张测试图片',
+      bulkTest: {
+        title: '批量测试账号',
+        selectedCount: '已选择 {count} 个账号参与批量测试',
+        defaultModelHint: '批量测试将复用现有测试接口，并让服务端按平台使用默认测试模型顺序串行执行。',
+        runningSummary: '正在测试第 {current} / {total} 个账号',
+        pendingMessage: '等待开始',
+        runningMessage: '排队中，准备发起测试...',
+        testingWithModel: '正在测试，模型：{model}',
+        successWithModel: '测试成功，模型：{model}',
+        imageReceived: '已收到 {count} 张测试图片',
+        imageGenerated: '测试成功，返回 {count} 张图片',
+        summary: {
+          pending: '待测试',
+          running: '测试中',
+          success: '成功',
+          failed: '失败'
+        }
+      },
       // Stats Modal
       viewStats: '查看统计',
       usageStatistics: '使用统计',

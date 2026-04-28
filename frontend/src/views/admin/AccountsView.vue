@@ -5,11 +5,13 @@
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             v-model:searchQuery="params.search"
+            v-model:planTypeQuery="params.plan_type"
             :filters="params"
             :groups="groups"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
+            @update:planTypeQuery="debouncedReload"
           />
           <AccountTableActions
             :loading="loading"
@@ -141,7 +143,7 @@
         </div>
       </template>
       <template #table>
-        <AccountBulkActionsBar :selected-ids="selIds" @delete="handleBulkDelete" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
+        <AccountBulkActionsBar :selected-ids="selIds" @test="openBulkTestModal" @delete="handleBulkDelete" @reset-status="handleBulkResetStatus" @refresh-token="handleBulkRefreshToken" @edit="showBulkEdit = true" @clear="clearSelection" @select-page="selectPage" @toggle-schedulable="handleBulkToggleSchedulable" />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           ref="dataTableRef"
@@ -298,6 +300,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <BatchAccountTestModal :show="showBulkTest" :accounts="selectedTestTargets" @close="closeBulkTestModal" @completed="handleBulkTestCompleted" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
@@ -337,6 +340,7 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import BatchAccountTestModal from '@/components/admin/account/BatchAccountTestModal.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -391,6 +395,8 @@ const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showBulkTest = ref(false)
+const bulkTestNeedsReload = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
@@ -645,6 +651,7 @@ const {
     type: '',
     status: '',
     privacy_mode: '',
+    plan_type: '',
     group: '',
     search: '',
     sort_by: sortState.sort_by,
@@ -668,6 +675,17 @@ const {
 } = useTableSelection<Account>({
   rows: accounts,
   getId: (account) => account.id
+})
+
+const selectedTestTargets = computed(() => {
+  const accountMap = new Map(accounts.value.map((account) => [account.id, account]))
+  return selIds.value.map((id) => {
+    const account = accountMap.get(id)
+    return {
+      id,
+      name: account?.name || `#${id}`
+    }
+  })
 })
 
 const swipeVirtualContext: SwipeSelectVirtualContext = {
@@ -1114,6 +1132,21 @@ const handleBulkRefreshToken = async () => {
     appStore.showError(String(error))
   }
 }
+const openBulkTestModal = () => {
+  if (selIds.value.length === 0) return
+  bulkTestNeedsReload.value = false
+  showBulkTest.value = true
+}
+const closeBulkTestModal = () => {
+  showBulkTest.value = false
+  if (bulkTestNeedsReload.value) {
+    bulkTestNeedsReload.value = false
+    reload()
+  }
+}
+const handleBulkTestCompleted = () => {
+  bulkTestNeedsReload.value = true
+}
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return
   const idSet = new Set(accountIds)
@@ -1226,6 +1259,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  plan_type: params.plan_type || '',
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
@@ -1269,6 +1303,9 @@ const accountMatchesCurrentFilters = (account: Account) => {
       return false
     }
   }
+  const planType = String(account.credentials?.plan_type || '').trim().toLowerCase()
+  const planTypeFilter = String(filters.plan_type || '').trim().toLowerCase()
+  if (planTypeFilter && planType !== planTypeFilter) return false
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
   return true

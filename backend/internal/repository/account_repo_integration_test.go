@@ -111,6 +111,35 @@ func (s *AccountRepoSuite) TestCreate() {
 	s.Require().Equal("test-create", got.Name)
 }
 
+func (s *AccountRepoSuite) TestCreate_DuplicateName() {
+	first := &service.Account{
+		Name:        "duplicate-name",
+		Platform:    service.PlatformAnthropic,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{},
+		Extra:       map[string]any{},
+		Concurrency: 3,
+		Priority:    50,
+		Schedulable: true,
+	}
+	second := &service.Account{
+		Name:        "duplicate-name",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{},
+		Extra:       map[string]any{},
+		Concurrency: 3,
+		Priority:    50,
+		Schedulable: true,
+	}
+
+	s.Require().NoError(s.repo.Create(s.ctx, first))
+	err := s.repo.Create(s.ctx, second)
+	s.Require().ErrorIs(err, service.ErrAccountExists)
+}
+
 func (s *AccountRepoSuite) TestGetByID_NotFound() {
 	_, err := s.repo.GetByID(s.ctx, 999999)
 	s.Require().Error(err, "expected error for non-existent ID")
@@ -126,6 +155,15 @@ func (s *AccountRepoSuite) TestUpdate() {
 	got, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err, "GetByID after update")
 	s.Require().Equal("updated", got.Name)
+}
+
+func (s *AccountRepoSuite) TestUpdate_DuplicateName() {
+	first := mustCreateAccount(s.T(), s.client, &service.Account{Name: "first"})
+	second := mustCreateAccount(s.T(), s.client, &service.Account{Name: "second"})
+
+	second.Name = first.Name
+	err := s.repo.Update(s.ctx, second)
+	s.Require().ErrorIs(err, service.ErrAccountExists)
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
@@ -216,6 +254,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 		search      string
 		groupID     int64
 		privacyMode string
+		planType    string
 		wantCount   int
 		validate    func(accounts []service.Account)
 	}{
@@ -403,6 +442,18 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 				s.ElementsMatch([]string{"privacy-unset", "privacy-empty"}, names)
 			},
 		},
+		{
+			name: "filter_by_plan_type",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "plan-plus", Credentials: map[string]any{"plan_type": "Plus"}})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "plan-free", Credentials: map[string]any{"plan_type": "free"}})
+			},
+			planType:  "plus",
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("plan-plus", accounts[0].Name)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -415,7 +466,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 
 			tt.setup(client)
 
-			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode)
+			accounts, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode, tt.planType)
 			s.Require().NoError(err)
 			s.Require().Len(accounts, tt.wantCount)
 			if tt.validate != nil {
@@ -482,7 +533,7 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Len(got.Groups, 1, "expected Groups to be populated")
 	s.Require().Equal(group.ID, got.Groups[0].ID)
 
-	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "")
+	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "", "")
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)

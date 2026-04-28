@@ -97,7 +97,7 @@ func TestOpsServiceGetOpenAITokenStats_Validation(t *testing.T) {
 				StartTime: now.Add(-time.Hour),
 				EndTime:   now,
 				Page:      1,
-				PageSize:  101,
+				PageSize:  10001,
 			},
 			wantCode:   400,
 			wantReason: "OPS_PAGE_SIZE_INVALID",

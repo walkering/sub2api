@@ -213,15 +213,15 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "50", repo.updates[SettingKeyTableDefaultPageSize])
-	require.Equal(t, "[20,50,100]", repo.updates[SettingKeyTablePageSizeOptions])
+	require.Equal(t, "[20,50,100,500,1000,2000,5000,10000]", repo.updates[SettingKeyTablePageSizeOptions])
 
 	err = svc.UpdateSettings(context.Background(), &SystemSettings{
-		TableDefaultPageSize: 1000,
+		TableDefaultPageSize: 10000,
 		TablePageSizeOptions: []int{20, 100},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "1000", repo.updates[SettingKeyTableDefaultPageSize])
-	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
+	require.Equal(t, "10000", repo.updates[SettingKeyTableDefaultPageSize])
+	require.Equal(t, "[20,100,500,1000,2000,5000,10000]", repo.updates[SettingKeyTablePageSizeOptions])
 }
 
 func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {

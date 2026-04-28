@@ -541,6 +541,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
+		if resp.StatusCode == http.StatusUnauthorized && s.handleOpenAIAccountDeactivatedDuringTest(ctx, account, body) {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
@@ -656,6 +659,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized && s.handleOpenAIAccountDeactivatedDuringTest(ctx, account, body) {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
@@ -1270,6 +1276,9 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized && s.handleOpenAIAccountDeactivatedDuringTest(ctx, account, body) {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
 
@@ -1368,6 +1377,9 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	}()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		if resp.StatusCode == http.StatusUnauthorized && s.handleOpenAIAccountDeactivatedDuringTest(ctx, account, body) {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		}
 		message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 		if message == "" {
 			message = fmt.Sprintf("Responses API returned %d", resp.StatusCode)
@@ -1402,6 +1414,31 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+func (s *AccountTestService) handleOpenAIAccountDeactivatedDuringTest(ctx context.Context, account *Account, body []byte) bool {
+	if !isOpenAIAccountDeactivatedError(body) {
+		return false
+	}
+	if s == nil || s.accountRepo == nil || account == nil {
+		return true
+	}
+	if err := s.accountRepo.Delete(ctx, account.ID); err != nil {
+		_ = s.accountRepo.SetError(ctx, account.ID, fmt.Sprintf("OpenAI account deactivated (401), auto-delete failed: %v", err))
+	}
+	return true
+}
+
+func isOpenAIAccountDeactivatedError(body []byte) bool {
+	if strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "account_deactivated") {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if strings.Contains(message, "account has been deactivated") {
+		return true
+	}
+	raw := strings.ToLower(string(body))
+	return strings.Contains(raw, "account has been deactivated")
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {

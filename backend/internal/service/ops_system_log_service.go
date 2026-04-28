@@ -33,8 +33,8 @@ func (s *OpsService) ListSystemLogs(ctx context.Context, filter *OpsSystemLogFil
 	if filter.PageSize <= 0 {
 		filter.PageSize = 50
 	}
-	if filter.PageSize > 200 {
-		filter.PageSize = 200
+	if filter.PageSize > 10000 {
+		filter.PageSize = 10000
 	}
 
 	result, err := s.opsRepo.ListSystemLogs(ctx, filter)

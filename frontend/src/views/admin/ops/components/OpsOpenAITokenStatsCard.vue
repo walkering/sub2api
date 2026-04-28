@@ -5,6 +5,7 @@ import Select from '@/components/common/Select.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { opsAPI, type OpsOpenAITokenStatsResponse, type OpsOpenAITokenStatsTimeRange } from '@/api/admin/ops'
 import { formatNumber } from '@/utils/format'
+import { getConfiguredTablePageSizeOptions } from '@/utils/tablePreferences'
 
 interface Props {
   platformFilter?: string
@@ -59,12 +60,12 @@ const topNOptions = computed(() => [
   { value: 100, label: 'Top 100' }
 ])
 
-const pageSizeOptions = computed(() => [
-  { value: 10, label: '10' },
-  { value: 20, label: '20' },
-  { value: 50, label: '50' },
-  { value: 100, label: '100' }
-])
+const pageSizeOptions = computed(() =>
+  getConfiguredTablePageSizeOptions().map((size) => ({
+    value: size,
+    label: String(size)
+  }))
+)
 
 function formatRate(v?: number | null): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '-'

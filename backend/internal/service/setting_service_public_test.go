@@ -75,7 +75,7 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 50, settings.TableDefaultPageSize)
-	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
+	require.Equal(t, []int{20, 50, 100, 500, 1000, 2000, 5000, 10000}, settings.TablePageSizeOptions)
 }
 
 func TestSettingService_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t *testing.T) {

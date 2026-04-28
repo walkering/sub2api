@@ -2552,6 +2552,7 @@ export default {
       editAccount: 'Edit Account',
       deleteAccount: 'Delete Account',
       searchAccounts: 'Search accounts...',
+      searchPlanType: 'Filter by plan type...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
@@ -2765,6 +2766,7 @@ export default {
         selectCurrentPage: 'Select this page',
         clear: 'Clear selection',
         edit: 'Bulk Edit',
+        test: 'Bulk Test',
         delete: 'Bulk Delete',
         enableScheduling: 'Enable Scheduling',
         disableScheduling: 'Disable Scheduling',
@@ -3428,6 +3430,24 @@ export default {
       imageTestMode: 'Mode: Image generation test',
       imagePreview: 'Generated images:',
       imageReceived: 'Received test image #{count}',
+      bulkTest: {
+        title: 'Bulk Test Accounts',
+        selectedCount: '{count} account(s) selected for bulk testing',
+        defaultModelHint: 'Bulk testing reuses the existing test endpoint and runs accounts sequentially with the platform default test model.',
+        runningSummary: 'Testing account {current} / {total}',
+        pendingMessage: 'Waiting to start',
+        runningMessage: 'Queued and preparing test...',
+        testingWithModel: 'Testing with model: {model}',
+        successWithModel: 'Test succeeded with model: {model}',
+        imageReceived: 'Received {count} test image(s)',
+        imageGenerated: 'Test succeeded and returned {count} image(s)',
+        summary: {
+          pending: 'Pending',
+          running: 'Running',
+          success: 'Success',
+          failed: 'Failed'
+        }
+      },
       // Stats Modal
       viewStats: 'View Stats',
       usageStatistics: 'Usage Statistics',

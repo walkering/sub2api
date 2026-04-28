@@ -1,8 +1,15 @@
 const MIN_TABLE_PAGE_SIZE = 5
-const MAX_TABLE_PAGE_SIZE = 1000
+const MAX_TABLE_PAGE_SIZE = 10000
+const REQUIRED_TABLE_PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000, 10000]
 
 export const DEFAULT_TABLE_PAGE_SIZE = 20
-export const DEFAULT_TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+export const DEFAULT_TABLE_PAGE_SIZE_OPTIONS = [
+  10,
+  20,
+  50,
+  100,
+  ...REQUIRED_TABLE_PAGE_SIZE_OPTIONS
+]
 
 const sanitizePageSize = (value: unknown): number | null => {
   const size = Number(value)
@@ -22,6 +29,9 @@ const getInjectedAppConfig = () => {
   if (typeof window === 'undefined') return null
   return window.__APP_CONFIG__ ?? null
 }
+
+const mergeRequiredPageSizeOptions = (options: number[]): number[] =>
+  Array.from(new Set([...options, ...REQUIRED_TABLE_PAGE_SIZE_OPTIONS])).sort((a, b) => a - b)
 
 const getSanitizedConfiguredOptions = (): number[] => {
   const configured = getInjectedAppConfig()?.table_page_size_options
@@ -59,7 +69,7 @@ export const getConfiguredTablePageSizeOptions = (): number[] => {
     return [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
   }
 
-  return unique.length > 0 ? unique : [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
+  return mergeRequiredPageSizeOptions(unique)
 }
 
 export const normalizeTablePageSize = (value: unknown): number => {
