@@ -3436,7 +3436,7 @@ export default {
       bulkTest: {
         title: 'Bulk Test Accounts',
         selectedCount: '{count} account(s) selected for bulk testing',
-        modelHint: 'You can choose a test model for each account. Batch testing runs sequentially with the currently selected model for each row.',
+        modelHint: 'Choose one model and batch testing will run it sequentially against all selected accounts.',
         runningSummary: 'Testing account {current} / {total}',
         pendingMessage: 'Waiting to start',
         runningMessage: 'Queued and preparing test...',
@@ -3445,6 +3445,7 @@ export default {
         imageReceived: 'Received {count} test image(s)',
         imageGenerated: 'Test succeeded and returned {count} image(s)',
         noModels: 'No models available for this account',
+        noCommonModels: 'These accounts do not share a common available test model',
         loadModelsFailed: 'Failed to load models',
         summary: {
           pending: 'Pending',

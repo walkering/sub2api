@@ -52,15 +52,15 @@ describe('BatchAccountTestModal', () => {
     vi.mocked(getAvailableModels).mockReset()
   })
 
-  it('runs selected accounts sequentially with the selected model and emits completed', async () => {
+  it('runs selected accounts sequentially with one shared selected model and emits completed', async () => {
     vi.mocked(getAvailableModels)
       .mockResolvedValueOnce([
         { id: 'gpt-4.1', display_name: 'GPT-4.1' },
         { id: 'gpt-5', display_name: 'GPT-5' }
       ] as any)
       .mockResolvedValueOnce([
-        { id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5' },
-        { id: 'claude-sonnet-4', display_name: 'Claude Sonnet 4' }
+        { id: 'gpt-5', display_name: 'GPT-5' },
+        { id: 'gpt-4.1', display_name: 'GPT-4.1' }
       ] as any)
 
     vi.mocked(streamAccountTest)
@@ -70,7 +70,7 @@ describe('BatchAccountTestModal', () => {
         return { success: true }
       })
       .mockImplementationOnce(async ({ onEvent }) => {
-        onEvent?.({ type: 'test_start', model: 'claude-sonnet' })
+        onEvent?.({ type: 'test_start', model: 'gpt-5' })
         return { success: false, error: 'second account failed' }
       })
 
@@ -79,7 +79,7 @@ describe('BatchAccountTestModal', () => {
         show: true,
         accounts: [
           { id: 1, name: 'Account A', platform: 'openai' },
-          { id: 2, name: 'Account B', platform: 'anthropic' }
+          { id: 2, name: 'Account B', platform: 'openai' }
         ]
       },
       global: {
@@ -117,7 +117,7 @@ describe('BatchAccountTestModal', () => {
     expect(startButton).toBeTruthy()
 
     const selects = wrapper.findAll('[data-test="model-select"]')
-    expect(selects).toHaveLength(2)
+    expect(selects).toHaveLength(1)
     await selects[0]!.setValue('gpt-5')
 
     await startButton!.trigger('click')
@@ -134,7 +134,7 @@ describe('BatchAccountTestModal', () => {
     expect(vi.mocked(streamAccountTest).mock.calls[1]?.[0]).toMatchObject({
       accountId: 2,
       authToken: 'test-token',
-      modelId: 'claude-sonnet-4'
+      modelId: 'gpt-5'
     })
     expect(wrapper.text()).toContain('first account ok')
     expect(wrapper.text()).toContain('second account failed')

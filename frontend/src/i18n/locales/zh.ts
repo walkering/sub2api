@@ -3564,7 +3564,7 @@ export default {
       bulkTest: {
         title: '批量测试账号',
         selectedCount: '已选择 {count} 个账号参与批量测试',
-        modelHint: '可为每个账号单独选择测试模型，批量测试会按当前所选模型依次串行执行。',
+        modelHint: '选择一个模型后，批量测试会使用该模型对所有账号逐个串行执行。',
         runningSummary: '正在测试第 {current} / {total} 个账号',
         pendingMessage: '等待开始',
         runningMessage: '排队中，准备发起测试...',
@@ -3573,6 +3573,7 @@ export default {
         imageReceived: '已收到 {count} 张测试图片',
         imageGenerated: '测试成功，返回 {count} 张图片',
         noModels: '该账号暂无可选模型',
+        noCommonModels: '这些账号没有共同可用的测试模型',
         loadModelsFailed: '加载模型失败',
         summary: {
           pending: '待测试',

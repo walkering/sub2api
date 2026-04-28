@@ -42,6 +42,31 @@
         </div>
       </div>
 
+      <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-500 dark:bg-dark-800">
+        <div class="space-y-1">
+          <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
+            {{ t('admin.accounts.selectTestModel') }}
+          </div>
+          <Select
+            v-model="selectedModelId"
+            :options="availableModels"
+            :disabled="running || loadingModels || availableModels.length === 0"
+            value-key="id"
+            label-key="display_name"
+            :placeholder="loadingModels ? `${t('common.loading')}...` : t('admin.accounts.selectTestModel')"
+          />
+          <div v-if="loadingModels" class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('common.loading') }}...
+          </div>
+          <div v-else-if="modelError" class="text-xs text-red-500 dark:text-red-400">
+            {{ modelError }}
+          </div>
+          <div v-else-if="availableModels.length === 0" class="text-xs text-amber-600 dark:text-amber-400">
+            {{ t('admin.accounts.bulkTest.noCommonModels') }}
+          </div>
+        </div>
+      </div>
+
       <div class="max-h-[420px] overflow-y-auto rounded-xl border border-gray-200 bg-white dark:border-dark-500 dark:bg-dark-800">
         <div
           v-for="result in results"
@@ -57,30 +82,14 @@
               {{ statusLabel(result.status) }}
             </span>
           </div>
-          <div class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_240px] md:items-start">
+          <div class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px] md:items-start">
             <div class="text-sm text-gray-600 dark:text-gray-300">
               {{ result.message || t('admin.accounts.bulkTest.pendingMessage') }}
             </div>
-            <div class="space-y-1">
-              <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
-                {{ t('admin.accounts.selectTestModel') }}
-              </div>
-              <Select
-                v-model="result.selectedModelId"
-                :options="result.availableModels"
-                :disabled="running || result.loadingModels || result.availableModels.length === 0"
-                value-key="id"
-                label-key="display_name"
-                :placeholder="result.loadingModels ? `${t('common.loading')}...` : t('admin.accounts.selectTestModel')"
-              />
-              <div v-if="result.loadingModels" class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('common.loading') }}...
-              </div>
-              <div v-else-if="result.modelError" class="text-xs text-red-500 dark:text-red-400">
-                {{ result.modelError }}
-              </div>
-              <div v-else-if="result.availableModels.length === 0" class="text-xs text-amber-600 dark:text-amber-400">
-                {{ t('admin.accounts.bulkTest.noModels') }}
+            <div class="space-y-1 text-right">
+              <div class="text-xs text-gray-500 dark:text-gray-400">{{ result.platform || '-' }}</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                {{ selectedModelId || t('admin.accounts.bulkTest.pendingMessage') }}
               </div>
             </div>
           </div>
@@ -141,10 +150,6 @@ interface BatchTestTarget {
 interface BatchTestResult extends BatchTestTarget {
   status: ResultStatus
   message: string
-  availableModels: SelectableClaudeModel[]
-  selectedModelId: string
-  loadingModels: boolean
-  modelError: string
 }
 
 const props = defineProps<{
@@ -160,6 +165,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const results = ref<BatchTestResult[]>([])
+const availableModels = ref<SelectableClaudeModel[]>([])
+const selectedModelId = ref('')
+const loadingModels = ref(false)
+const modelError = ref('')
 const running = ref(false)
 const activeRunOrdinal = ref(0)
 const modelLoadToken = ref(0)
@@ -173,7 +182,8 @@ const errorCount = computed(() => results.value.filter((item) => item.status ===
 const canStartBatchTest = computed(() =>
   !running.value &&
   results.value.length > 0 &&
-  results.value.every((item) => !item.loadingModels && !!item.selectedModelId)
+  !loadingModels.value &&
+  !!selectedModelId.value
 )
 
 watch(
@@ -192,16 +202,16 @@ watch(
 
 function resetResults() {
   activeRunOrdinal.value = 0
+  availableModels.value = []
+  selectedModelId.value = ''
+  loadingModels.value = false
+  modelError.value = ''
   results.value = props.accounts.map((account) => ({
     id: account.id,
     name: account.name,
     status: 'pending',
     message: '',
-    platform: account.platform,
-    availableModels: [],
-    selectedModelId: '',
-    loadingModels: true,
-    modelError: ''
+    platform: account.platform
   }))
 }
 
@@ -256,35 +266,46 @@ function getDefaultModelId(models: SelectableClaudeModel[], platform?: AccountPl
 async function loadAvailableModels() {
   const currentToken = modelLoadToken.value + 1
   modelLoadToken.value = currentToken
+  loadingModels.value = true
+  modelError.value = ''
+  availableModels.value = []
+  selectedModelId.value = ''
 
-  await Promise.all(results.value.map(async (result) => {
-    updateResult(result.id, {
-      loadingModels: true,
-      modelError: '',
-      availableModels: [],
-      selectedModelId: ''
-    })
-
-    try {
+  try {
+    const loadedModels = await Promise.all(results.value.map(async (result) => {
       const models = await adminAPI.accounts.getAvailableModels(result.id)
-      if (modelLoadToken.value !== currentToken) return
+      return sortTestModels(models, result.platform)
+    }))
+    if (modelLoadToken.value !== currentToken) return
 
-      const sortedModels = sortTestModels(models, result.platform)
-      updateResult(result.id, {
-        availableModels: sortedModels,
-        selectedModelId: getDefaultModelId(sortedModels, result.platform),
-        loadingModels: false,
-        modelError: ''
-      })
-    } catch (error) {
-      if (modelLoadToken.value !== currentToken) return
-      console.error('Failed to load available models for batch account test:', error)
-      updateResult(result.id, {
-        loadingModels: false,
-        modelError: t('admin.accounts.bulkTest.loadModelsFailed')
-      })
+    const commonModelMap = new Map<string, SelectableClaudeModel>()
+    for (const model of loadedModels[0] || []) {
+      commonModelMap.set(model.id, model)
     }
-  }))
+    for (const modelList of loadedModels.slice(1)) {
+      const idSet = new Set(modelList.map((model) => model.id))
+      for (const modelID of [...commonModelMap.keys()]) {
+        if (!idSet.has(modelID)) {
+          commonModelMap.delete(modelID)
+        }
+      }
+    }
+
+    const commonModels = (loadedModels[0] || []).filter((model) => commonModelMap.has(model.id))
+    availableModels.value = commonModels
+    selectedModelId.value = getDefaultModelId(commonModels, props.accounts[0]?.platform)
+    if (commonModels.length === 0) {
+      modelError.value = t('admin.accounts.bulkTest.noCommonModels')
+    }
+  } catch (error) {
+    if (modelLoadToken.value !== currentToken) return
+    console.error('Failed to load available models for batch account test:', error)
+    modelError.value = t('admin.accounts.bulkTest.loadModelsFailed')
+  } finally {
+    if (modelLoadToken.value === currentToken) {
+      loadingModels.value = false
+    }
+  }
 }
 
 function statusLabel(status: ResultStatus) {
@@ -328,7 +349,7 @@ function buildSuccessMessage(model: string, content: string, imageCount: number)
 }
 
 async function startBatchTest() {
-  if (running.value || props.accounts.length === 0) return
+  if (running.value || props.accounts.length === 0 || !selectedModelId.value) return
 
   resetRunState()
   running.value = true
@@ -336,7 +357,8 @@ async function startBatchTest() {
   abortController = new AbortController()
   const token = localStorage.getItem('auth_token')
   let finished = false
-  const targets = results.value.map(({ id, name, selectedModelId }) => ({ id, name, selectedModelId }))
+  const targetModelID = selectedModelId.value
+  const targets = results.value.map(({ id, name }) => ({ id, name, selectedModelId: targetModelID }))
 
   try {
     for (const [index, account] of targets.entries()) {
