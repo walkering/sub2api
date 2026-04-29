@@ -200,8 +200,8 @@ func TestPasswordAuthorizationWorkflowStartStep(t *testing.T) {
 }
 
 func TestPasswordAuthorizationWorkflowAfterAuthorize(t *testing.T) {
-	if got := passwordAuthorizationWorkflowAfterAuthorize(passwordAuthorizationWorkflowLogin); got != passwordAuthorizationFlowStepAuthorizeEmail {
-		t.Fatalf("passwordAuthorizationWorkflowAfterAuthorize(login) = %q, want %q", got, passwordAuthorizationFlowStepAuthorizeEmail)
+	if got := passwordAuthorizationWorkflowAfterAuthorize(passwordAuthorizationWorkflowLogin); got != passwordAuthorizationFlowStepSendEmailOTP {
+		t.Fatalf("passwordAuthorizationWorkflowAfterAuthorize(login) = %q, want %q", got, passwordAuthorizationFlowStepSendEmailOTP)
 	}
 	if got := passwordAuthorizationWorkflowAfterAuthorize(passwordAuthorizationWorkflowRegister); got != passwordAuthorizationFlowStepWarmupRegisterSession {
 		t.Fatalf("passwordAuthorizationWorkflowAfterAuthorize(register) = %q, want %q", got, passwordAuthorizationFlowStepWarmupRegisterSession)

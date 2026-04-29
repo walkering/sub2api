@@ -115,9 +115,9 @@ func passwordAuthorizationWorkflowAfterAuthorize(kind passwordAuthorizationWorkf
 	case passwordAuthorizationWorkflowRegister:
 		return passwordAuthorizationFlowStepWarmupRegisterSession
 	case passwordAuthorizationWorkflowLogin:
-		return passwordAuthorizationFlowStepAuthorizeEmail
+		return passwordAuthorizationFlowStepSendEmailOTP
 	default:
-		return passwordAuthorizationFlowStepAuthorizeEmail
+		return passwordAuthorizationFlowStepSendEmailOTP
 	}
 }
 
