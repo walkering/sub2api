@@ -210,6 +210,7 @@ func AcquireAuthorizationCodeWithPassword(ctx context.Context, input PasswordAut
 
 	passwordSubmittedAt := time.Now().UTC()
 	finalPage, err := advancePasswordAuthorizationFlow(ctx, &passwordAuthorizationFlowContext{
+		authURL:             authURL,
 		email:               email,
 		password:            input.Password,
 		passwordSubmittedAt: passwordSubmittedAt,
