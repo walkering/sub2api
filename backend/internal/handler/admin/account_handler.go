@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 // AccountHandler handles admin account management
 type AccountHandler struct {
 	adminService            service.AdminService
+	settingService          *service.SettingService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
@@ -93,6 +95,13 @@ func NewAccountHandler(
 	}
 }
 
+func (h *AccountHandler) SetSettingService(settingService *service.SettingService) {
+	if h == nil {
+		return
+	}
+	h.settingService = settingService
+}
+
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
@@ -101,6 +110,9 @@ type CreateAccountRequest struct {
 	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
+	OpenAIEmailProvider     string         `json:"openai_email_provider"`
+	OpenAIPhoneProvider     string         `json:"openai_phone_provider"`
+	OpenAISavedPassword     string         `json:"openai_saved_password"`
 	ProxyID                 *int64         `json:"proxy_id"`
 	Concurrency             int            `json:"concurrency"`
 	Priority                int            `json:"priority"`
@@ -130,6 +142,31 @@ type UpdateAccountRequest struct {
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+}
+
+func applyCreateAccountOpenAIOAuthAssociation(req *CreateAccountRequest) {
+	if req == nil || req.Platform != service.PlatformOpenAI || req.Type != service.AccountTypeOAuth {
+		return
+	}
+
+	normalizedProvider := strings.ToLower(strings.TrimSpace(req.OpenAIEmailProvider))
+	normalizedPassword := strings.TrimSpace(req.OpenAISavedPassword)
+	if normalizedProvider == "" && normalizedPassword == "" {
+		return
+	}
+
+	if req.Extra == nil {
+		req.Extra = make(map[string]any)
+	}
+	if normalizedPassword != "" {
+		req.Extra["password"] = normalizedPassword
+	}
+	if normalizedProvider == "freemail" {
+		req.Extra["openai_email_provider"] = normalizedProvider
+	}
+	if normalizedPhoneProvider := strings.ToLower(strings.TrimSpace(req.OpenAIPhoneProvider)); normalizedPhoneProvider == "hero-sms" {
+		req.Extra["openai_phone_provider"] = normalizedPhoneProvider
+	}
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
@@ -509,6 +546,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	applyCreateAccountOpenAIOAuthAssociation(&req)
 	if req.RateMultiplier != nil && *req.RateMultiplier < 0 {
 		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
@@ -1153,6 +1191,456 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 	})
 }
 
+func isTokenExpiredAccount(account *service.Account) bool {
+	if account == nil {
+		return false
+	}
+	// Temporarily disable token_expired-specific filtering for automation debugging.
+	return account.Status == service.StatusError
+}
+
+func extractOpenAIAutoReauthEmail(account *service.Account) string {
+	if account == nil {
+		return ""
+	}
+	candidates := []string{
+		account.GetCredential("email"),
+		account.GetExtraString("email"),
+		account.GetExtraString("email_address"),
+		account.Name,
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if strings.Contains(candidate, "@") {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func extractOpenAIAutoReauthPassword(account *service.Account) string {
+	if account == nil {
+		return ""
+	}
+	return strings.TrimSpace(account.GetExtraString("password"))
+}
+
+func extractOpenAIAutoReauthEmailProvider(account *service.Account) string {
+	if account == nil {
+		return ""
+	}
+	value := strings.TrimSpace(account.GetExtraString("openai_email_provider"))
+	return strings.ToLower(value)
+}
+
+func extractOpenAIAutoReauthPhoneProvider(account *service.Account) string {
+	if account == nil {
+		return ""
+	}
+	value := strings.TrimSpace(account.GetExtraString("openai_phone_provider"))
+	return strings.ToLower(value)
+}
+
+func extractOpenAIAutoReauthFreeMailConfig(account *service.Account) *openai.FreeMailOTPConfig {
+	if account == nil {
+		return nil
+	}
+	baseURL := strings.TrimSpace(account.GetExtraString("freemailBaseUrl"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(account.GetExtraString("freemail_base_url"))
+	}
+	username := strings.TrimSpace(account.GetExtraString("freemailUsername"))
+	if username == "" {
+		username = strings.TrimSpace(account.GetExtraString("freemail_username"))
+	}
+	password := strings.TrimSpace(account.GetExtraString("freemailPassword"))
+	if password == "" {
+		password = strings.TrimSpace(account.GetExtraString("freemail_password"))
+	}
+	domain := strings.TrimSpace(account.GetExtraString("freemailDomain"))
+	if domain == "" {
+		domain = strings.TrimSpace(account.GetExtraString("freemail_domain"))
+	}
+	if baseURL == "" && username == "" && password == "" && domain == "" {
+		return nil
+	}
+	return &openai.FreeMailOTPConfig{
+		BaseURL:  baseURL,
+		Username: username,
+		Password: password,
+		Domain:   domain,
+	}
+}
+
+func extractOpenAIAutoReauthPhoneConfig(account *service.Account) *openai.PhoneOTPProviderConfig {
+	if account == nil {
+		return nil
+	}
+	baseURL := strings.TrimSpace(account.GetExtraString("phoneBaseUrl"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(account.GetExtraString("phone_base_url"))
+	}
+	apiKey := strings.TrimSpace(account.GetExtraString("phoneApiKey"))
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(account.GetExtraString("phone_api_key"))
+	}
+	serviceCode := strings.TrimSpace(account.GetExtraString("phoneServiceCode"))
+	if serviceCode == "" {
+		serviceCode = strings.TrimSpace(account.GetExtraString("phone_service_code"))
+	}
+	country := strings.TrimSpace(account.GetExtraString("phoneCountry"))
+	if country == "" {
+		country = strings.TrimSpace(account.GetExtraString("phone_country"))
+	}
+	operator := strings.TrimSpace(account.GetExtraString("phoneOperator"))
+	if operator == "" {
+		operator = strings.TrimSpace(account.GetExtraString("phone_operator"))
+	}
+	if baseURL == "" && apiKey == "" && serviceCode == "" && country == "" && operator == "" {
+		return nil
+	}
+	return &openai.PhoneOTPProviderConfig{
+		Provider:    "hero-sms",
+		BaseURL:     baseURL,
+		APIKey:      apiKey,
+		ServiceCode: serviceCode,
+		Country:     country,
+		Operator:    operator,
+	}
+}
+
+func extractOpenAIAuthState(authURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(authURL))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.Query().Get("state"))
+}
+
+func normalizeOpenAIAutoReauthProxy(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	candidate := value
+	if !strings.Contains(candidate, "://") {
+		candidate = "http://" + candidate
+	}
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return "", fmt.Errorf("invalid proxy url: %w", err)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("invalid proxy host")
+	}
+	return parsed.String(), nil
+}
+
+const openAIAutoReauthTotalSteps = 8
+
+func formatOpenAIAutoReauthStep(step int, message string) string {
+	return fmt.Sprintf("步骤 %d/%d：%s", step, openAIAutoReauthTotalSteps, message)
+}
+
+// BatchOpenAIAutoReauth handles pure HTTP OpenAI OAuth re-login for token_expired accounts.
+// POST /api/v1/admin/accounts/batch-openai-auto-reauth
+func (h *AccountHandler) BatchOpenAIAutoReauth(c *gin.Context) {
+	var req struct {
+		AccountIDs    []int64 `json:"account_ids"`
+		ProxyEnabled  bool    `json:"proxy_enabled"`
+		ProxyEndpoint string  `json:"proxy_endpoint"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.AccountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
+	}
+	proxyEndpoint := ""
+	if req.ProxyEnabled {
+		normalizedProxy, err := normalizeOpenAIAutoReauthProxy(req.ProxyEndpoint)
+		if err != nil {
+			response.BadRequest(c, "Invalid proxy endpoint: "+err.Error())
+			return
+		}
+		proxyEndpoint = normalizedProxy
+	}
+
+	job := openAIAutoReauthJobs.create(len(req.AccountIDs))
+	job.appendLog("info", fmt.Sprintf("任务创建成功，共 %d 个账号待处理", len(req.AccountIDs)), nil)
+	if proxyEndpoint != "" {
+		job.appendLog("info", "本次任务启用了自定义代理："+proxyEndpoint, nil)
+	}
+
+	accountIDs := append([]int64(nil), req.AccountIDs...)
+	go func() {
+		bgctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		h.runOpenAIAutoReauthJob(bgctx, job, accountIDs, proxyEndpoint)
+	}()
+
+	response.Success(c, gin.H{
+		"job_id": job.ID,
+	})
+}
+
+// GetOpenAIAutoReauthJob returns the real-time status/logs of an OpenAI auto reauth job.
+// GET /api/v1/admin/accounts/openai-auto-reauth-jobs/:id
+func (h *AccountHandler) GetOpenAIAutoReauthJob(c *gin.Context) {
+	jobID := strings.TrimSpace(c.Param("id"))
+	if jobID == "" {
+		response.BadRequest(c, "job id is required")
+		return
+	}
+	after, _ := strconv.ParseInt(strings.TrimSpace(c.Query("after")), 10, 64)
+	job, ok := openAIAutoReauthJobs.get(jobID)
+	if !ok {
+		response.NotFound(c, "Job not found")
+		return
+	}
+	response.Success(c, job.snapshot(after))
+}
+
+func (h *AccountHandler) runOpenAIAutoReauthJob(ctx context.Context, job *openAIAutoReauthJob, accountIDs []int64, overrideProxyURL string) {
+	defer job.complete()
+
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, accountIDs)
+	if err != nil {
+		job.appendLog("error", "加载账号失败: "+err.Error(), nil)
+		return
+	}
+
+	foundIDs := make(map[int64]bool, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			foundIDs[account.ID] = true
+		}
+	}
+
+	const maxConcurrency = 3
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrency)
+
+	var mu sync.Mutex
+	successCount := 0
+	failedCount := 0
+	skippedCount := 0
+
+	for _, id := range accountIDs {
+		if foundIDs[id] {
+			continue
+		}
+		failedCount++
+		job.addError(id, "account not found")
+		accountID := id
+		job.appendLog("error", "账号不存在", &accountID)
+	}
+
+	for _, account := range accounts {
+		acc := account
+		if acc == nil {
+			continue
+		}
+
+		g.Go(func() error {
+			accountID := acc.ID
+			job.appendLog("info", formatOpenAIAutoReauthStep(1, "开始处理账号 "+acc.Name), &accountID)
+			job.appendLog("info", formatOpenAIAutoReauthStep(2, "开始校验账号类型、错误状态与登录凭证"), &accountID)
+
+			if acc.Platform != service.PlatformOpenAI || acc.Type != service.AccountTypeOAuth {
+				mu.Lock()
+				skippedCount++
+				mu.Unlock()
+				job.addWarning(acc.ID, "only openai oauth accounts support automatic re-login")
+				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：仅支持 OpenAI OAuth 账号"), &accountID)
+				return nil
+			}
+			if !isTokenExpiredAccount(acc) {
+				mu.Lock()
+				skippedCount++
+				mu.Unlock()
+				job.addWarning(acc.ID, "account is not in error status")
+				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：账号不是错误状态"), &accountID)
+				return nil
+			}
+
+			email := extractOpenAIAutoReauthEmail(acc)
+			password := extractOpenAIAutoReauthPassword(acc)
+			emailProvider := extractOpenAIAutoReauthEmailProvider(acc)
+			phoneProvider := extractOpenAIAutoReauthPhoneProvider(acc)
+			freemailConfig := extractOpenAIAutoReauthFreeMailConfig(acc)
+			phoneConfig := extractOpenAIAutoReauthPhoneConfig(acc)
+			if freemailConfig == nil && emailProvider == "freemail" && h.settingService != nil {
+				freemailConfig = h.settingService.GetOpenAIOAuthFreemailConfig(gctx)
+			}
+			if phoneConfig == nil && phoneProvider == "hero-sms" && h.settingService != nil {
+				phoneConfig = h.settingService.GetOpenAIOAuthPhoneOTPConfig(gctx)
+			}
+			if email == "" || freemailConfig == nil {
+				mu.Lock()
+				skippedCount++
+				mu.Unlock()
+				job.addWarning(acc.ID, "missing stored email or email otp provider configuration for automatic re-login")
+				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：缺少邮箱或邮箱 OTP 提供商配置"), &accountID)
+				return nil
+			}
+			job.appendLog("info", formatOpenAIAutoReauthStep(2, "账号校验通过，已确认邮箱、邮箱 OTP 提供商与可选代理配置"), &accountID)
+
+			var proxyURL string
+			if overrideProxyURL != "" {
+				proxyURL = overrideProxyURL
+			} else if acc.ProxyID != nil {
+				if proxy, proxyErr := h.adminService.GetProxy(gctx, *acc.ProxyID); proxyErr == nil && proxy != nil {
+					proxyURL = proxy.URL()
+				}
+			}
+
+			job.appendLog("info", formatOpenAIAutoReauthStep(3, "生成 OAuth 授权链接"), &accountID)
+			authResult, authErr := h.openaiOAuthService.GenerateAuthURL(gctx, acc.ProxyID, "", service.PlatformOpenAI)
+			if authErr != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				job.addError(acc.ID, authErr.Error())
+				job.appendLog("error", formatOpenAIAutoReauthStep(3, "生成授权链接失败: "+authErr.Error()), &accountID)
+				return nil
+			}
+			job.appendLog("info", formatOpenAIAutoReauthStep(3, "生成 OAuth 授权链接成功"), &accountID)
+			job.appendLog("info", "OAuth 授权链接："+authResult.AuthURL, &accountID)
+
+			state := extractOpenAIAuthState(authResult.AuthURL)
+			if state == "" {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				job.addError(acc.ID, "oauth state is empty")
+				job.appendLog("error", formatOpenAIAutoReauthStep(3, "授权链接缺少 state"), &accountID)
+				return nil
+			}
+
+			job.appendLog("info", formatOpenAIAutoReauthStep(4, "开始纯 HTTP 登录并提取授权码"), &accountID)
+			code, codeErr := openai.AcquireAuthorizationCodeWithPassword(gctx, openai.PasswordAuthorizationInput{
+				AuthURL:        authResult.AuthURL,
+				Email:          email,
+				Password:       password,
+				ProxyURL:       proxyURL,
+				Logger:         slog.Default(),
+				StepPrefix:     "步骤 4",
+				FreeMailConfig: freemailConfig,
+				PhoneConfig:    phoneConfig,
+				Logf: func(level, message string) {
+					job.appendLog(level, message, &accountID)
+				},
+			})
+			if codeErr != nil {
+				mu.Lock()
+				if errors.Is(codeErr, openai.ErrPasswordAuthorizationAddPhone) {
+					skippedCount++
+					job.addWarning(acc.ID, "login flow requires add_phone/add-phone but no phone provider is configured, skipped")
+					job.appendLog("warn", formatOpenAIAutoReauthStep(4, "跳过：登录流程命中 add_phone/add-phone，但未配置手机号接码"), &accountID)
+				} else if errors.Is(codeErr, openai.ErrPasswordAuthorizationEmailOTP) {
+					skippedCount++
+					job.addWarning(acc.ID, "login flow requires email otp, skipped")
+					job.appendLog("warn", formatOpenAIAutoReauthStep(4, "跳过：登录流程要求邮箱 OTP"), &accountID)
+				} else {
+					failedCount++
+					job.addError(acc.ID, codeErr.Error())
+					job.appendLog("error", formatOpenAIAutoReauthStep(4, "提取授权码失败: "+codeErr.Error()), &accountID)
+				}
+				mu.Unlock()
+				return nil
+			}
+
+			job.appendLog("info", formatOpenAIAutoReauthStep(4, "授权码获取成功"), &accountID)
+			job.appendLog("info", formatOpenAIAutoReauthStep(5, "开始兑换 Token"), &accountID)
+			tokenInfo, exchangeErr := h.openaiOAuthService.ExchangeCode(gctx, &service.OpenAIExchangeCodeInput{
+				SessionID: authResult.SessionID,
+				Code:      code,
+				State:     state,
+				ProxyID:   acc.ProxyID,
+			})
+			if exchangeErr != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				job.addError(acc.ID, exchangeErr.Error())
+				job.appendLog("error", formatOpenAIAutoReauthStep(5, "兑换 Token 失败: "+exchangeErr.Error()), &accountID)
+				return nil
+			}
+			job.appendLog("info", formatOpenAIAutoReauthStep(5, "兑换 Token 成功，已获取新凭证"), &accountID)
+
+			credentials := h.openaiOAuthService.BuildAccountCredentials(tokenInfo)
+			for key, value := range acc.Credentials {
+				if _, exists := credentials[key]; !exists {
+					credentials[key] = value
+				}
+			}
+
+			extra := map[string]any{}
+			for key, value := range acc.Extra {
+				extra[key] = value
+			}
+			extra["password"] = password
+			if tokenInfo.Email != "" {
+				extra["email_address"] = tokenInfo.Email
+				if _, exists := extra["email"]; !exists {
+					extra["email"] = tokenInfo.Email
+				}
+			}
+
+			job.appendLog("info", formatOpenAIAutoReauthStep(6, "保存新凭证"), &accountID)
+			if _, updateErr := h.adminService.UpdateAccount(gctx, acc.ID, &service.UpdateAccountInput{
+				Type:        service.AccountTypeOAuth,
+				Credentials: credentials,
+				Extra:       extra,
+			}); updateErr != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				job.addError(acc.ID, updateErr.Error())
+				job.appendLog("error", formatOpenAIAutoReauthStep(6, "保存账号凭证失败: "+updateErr.Error()), &accountID)
+				return nil
+			}
+			job.appendLog("info", formatOpenAIAutoReauthStep(6, "保存账号凭证成功"), &accountID)
+
+			job.appendLog("info", formatOpenAIAutoReauthStep(7, "清除账号错误状态并刷新缓存"), &accountID)
+			clearedAccount, clearErr := h.adminService.ClearAccountError(gctx, acc.ID)
+			if clearErr != nil {
+				mu.Lock()
+				failedCount++
+				mu.Unlock()
+				job.addError(acc.ID, clearErr.Error())
+				job.appendLog("error", formatOpenAIAutoReauthStep(7, "清除账号错误状态失败: "+clearErr.Error()), &accountID)
+				return nil
+			}
+			job.appendLog("info", formatOpenAIAutoReauthStep(7, "清除账号错误状态成功"), &accountID)
+			if h.tokenCacheInvalidator != nil && clearedAccount != nil {
+				if invalidateErr := h.tokenCacheInvalidator.InvalidateToken(gctx, clearedAccount); invalidateErr != nil {
+					job.addWarning(acc.ID, "token cache invalidation failed: "+invalidateErr.Error())
+					job.appendLog("warn", formatOpenAIAutoReauthStep(7, "Token 缓存失效失败: "+invalidateErr.Error()), &accountID)
+				} else {
+					job.appendLog("info", formatOpenAIAutoReauthStep(7, "Token 缓存失效成功"), &accountID)
+				}
+			}
+
+			mu.Lock()
+			successCount++
+			mu.Unlock()
+			job.appendLog("info", formatOpenAIAutoReauthStep(8, "账号处理成功"), &accountID)
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		job.appendLog("error", "任务执行失败: "+err.Error(), nil)
+	}
+
+	job.setCounts(successCount, failedCount, skippedCount)
+	job.appendLog("info", fmt.Sprintf("任务完成：成功 %d，失败 %d，跳过 %d", successCount, failedCount, skippedCount), nil)
+}
+
 // BatchCreate handles batch creating accounts
 // POST /api/v1/admin/accounts/batch
 func (h *AccountHandler) BatchCreate(c *gin.Context) {
@@ -1173,6 +1661,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 		var openaiPrivacyAccounts []*service.Account
 
 		for _, item := range req.Accounts {
+			applyCreateAccountOpenAIOAuthAssociation(&item)
 			if item.RateMultiplier != nil && *item.RateMultiplier < 0 {
 				failed++
 				results = append(results, gin.H{
@@ -1599,6 +2088,38 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 	response.Success(c, usage)
 }
 
+// GetBatchUsage handles getting usage information for multiple accounts.
+// POST /api/v1/admin/accounts/usage/batch?source=passive|active
+func (h *AccountHandler) GetBatchUsage(c *gin.Context) {
+	var req struct {
+		AccountIDs []int64 `json:"account_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, gin.H{"usage": map[string]any{}})
+		return
+	}
+
+	source := c.DefaultQuery("source", "passive")
+	usageMap, err := h.accountUsageService.GetUsageBatch(c.Request.Context(), accountIDs, source)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	payload := make(map[string]*service.UsageInfo, len(usageMap))
+	for accountID, usage := range usageMap {
+		payload[strconv.FormatInt(accountID, 10)] = usage
+	}
+
+	response.Success(c, gin.H{"usage": payload})
+}
+
 // ClearRateLimit handles clearing account rate limit status
 // POST /api/v1/admin/accounts/:id/clear-rate-limit
 func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
@@ -1712,6 +2233,13 @@ type BatchTodayStatsRequest struct {
 	AccountIDs []int64 `json:"account_ids" binding:"required"`
 }
 
+type selectableTestModel struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   string `json:"created_at"`
+}
+
 // GetBatchTodayStats 批量获取多个账号的今日统计。
 // POST /api/v1/admin/accounts/today-stats/batch
 func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
@@ -1785,6 +2313,59 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// CommonAvailableModelsRequest 批量共同可用模型请求体。
+type CommonAvailableModelsRequest struct {
+	AccountIDs []int64 `json:"account_ids" binding:"required"`
+}
+
+// GetCommonAvailableModels handles getting common available models for multiple accounts.
+// POST /api/v1/admin/accounts/models/common
+func (h *AccountHandler) GetCommonAvailableModels(c *gin.Context) {
+	var req CommonAvailableModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, []selectableTestModel{})
+		return
+	}
+
+	accounts, err := h.adminService.GetAccountsByIDs(c.Request.Context(), accountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	accountByID := make(map[int64]*service.Account, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		accountByID[account.ID] = account
+	}
+
+	orderedAccounts := make([]*service.Account, 0, len(accountIDs))
+	missingIDs := make([]string, 0)
+	for _, accountID := range accountIDs {
+		account := accountByID[accountID]
+		if account == nil {
+			missingIDs = append(missingIDs, strconv.FormatInt(accountID, 10))
+			continue
+		}
+		orderedAccounts = append(orderedAccounts, account)
+	}
+
+	if len(missingIDs) > 0 {
+		response.BadRequest(c, "Accounts not found: "+strings.Join(missingIDs, ", "))
+		return
+	}
+
+	response.Success(c, h.getCommonAvailableModels(orderedAccounts))
 }
 
 // GetAvailableModels handles getting available models for an account
@@ -1924,6 +2505,209 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+func (h *AccountHandler) getCommonAvailableModels(accounts []*service.Account) []selectableTestModel {
+	if len(accounts) == 0 {
+		return nil
+	}
+
+	commonModels := h.getSelectableModelsForAccount(accounts[0])
+	if len(commonModels) == 0 {
+		return nil
+	}
+
+	commonIDs := make(map[string]struct{}, len(commonModels))
+	for _, model := range commonModels {
+		commonIDs[model.ID] = struct{}{}
+	}
+
+	for _, account := range accounts[1:] {
+		accountModels := h.getSelectableModelsForAccount(account)
+		accountModelIDs := make(map[string]struct{}, len(accountModels))
+		for _, model := range accountModels {
+			accountModelIDs[model.ID] = struct{}{}
+		}
+		for _, model := range commonModels {
+			if _, ok := accountModelIDs[model.ID]; !ok {
+				delete(commonIDs, model.ID)
+			}
+		}
+		if len(commonIDs) == 0 {
+			return nil
+		}
+	}
+
+	result := make([]selectableTestModel, 0, len(commonIDs))
+	for _, model := range commonModels {
+		if _, ok := commonIDs[model.ID]; ok {
+			result = append(result, model)
+		}
+	}
+	return result
+}
+
+func (h *AccountHandler) getSelectableModelsForAccount(account *service.Account) []selectableTestModel {
+	if account == nil {
+		return nil
+	}
+
+	if account.IsOpenAI() {
+		if account.IsOpenAIPassthroughEnabled() {
+			return selectableTestModelsFromOpenAI(openai.DefaultModels)
+		}
+
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			return selectableTestModelsFromOpenAI(openai.DefaultModels)
+		}
+
+		models := make([]selectableTestModel, 0, len(mapping))
+		for requestedModel := range mapping {
+			models = append(models, selectableTestModelFromOpenAIModelID(requestedModel))
+		}
+		return models
+	}
+
+	if account.IsGemini() {
+		if account.IsOAuth() {
+			return selectableTestModelsFromGemini(geminicli.DefaultModels)
+		}
+
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			return selectableTestModelsFromGemini(geminicli.DefaultModels)
+		}
+
+		models := make([]selectableTestModel, 0, len(mapping))
+		for requestedModel := range mapping {
+			models = append(models, selectableTestModelFromGeminiModelID(requestedModel))
+		}
+		return models
+	}
+
+	if account.Platform == service.PlatformAntigravity {
+		return selectableTestModelsFromAntigravity(antigravity.DefaultModels())
+	}
+
+	if account.IsOAuth() {
+		return selectableTestModelsFromClaude(claude.DefaultModels)
+	}
+
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return selectableTestModelsFromClaude(claude.DefaultModels)
+	}
+
+	models := make([]selectableTestModel, 0, len(mapping))
+	for requestedModel := range mapping {
+		models = append(models, selectableTestModelFromClaudeModelID(requestedModel))
+	}
+	return models
+}
+
+func selectableTestModelsFromOpenAI(models []openai.Model) []selectableTestModel {
+	out := make([]selectableTestModel, 0, len(models))
+	for _, model := range models {
+		out = append(out, selectableTestModel{
+			ID:          model.ID,
+			Type:        model.Type,
+			DisplayName: model.DisplayName,
+		})
+	}
+	return out
+}
+
+func selectableTestModelsFromGemini(models []geminicli.Model) []selectableTestModel {
+	out := make([]selectableTestModel, 0, len(models))
+	for _, model := range models {
+		out = append(out, selectableTestModel{
+			ID:          model.ID,
+			Type:        model.Type,
+			DisplayName: model.DisplayName,
+			CreatedAt:   model.CreatedAt,
+		})
+	}
+	return out
+}
+
+func selectableTestModelsFromClaude(models []claude.Model) []selectableTestModel {
+	out := make([]selectableTestModel, 0, len(models))
+	for _, model := range models {
+		out = append(out, selectableTestModel{
+			ID:          model.ID,
+			Type:        model.Type,
+			DisplayName: model.DisplayName,
+			CreatedAt:   model.CreatedAt,
+		})
+	}
+	return out
+}
+
+func selectableTestModelsFromAntigravity(models []antigravity.ClaudeModel) []selectableTestModel {
+	out := make([]selectableTestModel, 0, len(models))
+	for _, model := range models {
+		out = append(out, selectableTestModel{
+			ID:          model.ID,
+			Type:        model.Type,
+			DisplayName: model.DisplayName,
+			CreatedAt:   model.CreatedAt,
+		})
+	}
+	return out
+}
+
+func selectableTestModelFromOpenAIModelID(modelID string) selectableTestModel {
+	for _, model := range openai.DefaultModels {
+		if model.ID == modelID {
+			return selectableTestModel{
+				ID:          model.ID,
+				Type:        model.Type,
+				DisplayName: model.DisplayName,
+			}
+		}
+	}
+	return selectableTestModel{
+		ID:          modelID,
+		Type:        "model",
+		DisplayName: modelID,
+	}
+}
+
+func selectableTestModelFromGeminiModelID(modelID string) selectableTestModel {
+	for _, model := range geminicli.DefaultModels {
+		if model.ID == modelID {
+			return selectableTestModel{
+				ID:          model.ID,
+				Type:        model.Type,
+				DisplayName: model.DisplayName,
+				CreatedAt:   model.CreatedAt,
+			}
+		}
+	}
+	return selectableTestModel{
+		ID:          modelID,
+		Type:        "model",
+		DisplayName: modelID,
+	}
+}
+
+func selectableTestModelFromClaudeModelID(modelID string) selectableTestModel {
+	for _, model := range claude.DefaultModels {
+		if model.ID == modelID {
+			return selectableTestModel{
+				ID:          model.ID,
+				Type:        model.Type,
+				DisplayName: model.DisplayName,
+				CreatedAt:   model.CreatedAt,
+			}
+		}
+	}
+	return selectableTestModel{
+		ID:          modelID,
+		Type:        "model",
+		DisplayName: modelID,
+	}
 }
 
 // SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account

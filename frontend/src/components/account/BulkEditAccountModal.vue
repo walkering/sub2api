@@ -663,6 +663,105 @@
 
       <!-- OpenAI OAuth WS mode -->
       <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-4">
+          <div class="mb-3 flex items-center justify-between">
+            <label
+              id="bulk-edit-openai-email-provider-label"
+              class="input-label mb-0"
+              for="bulk-edit-openai-email-provider-enabled"
+            >
+              {{ t('admin.accounts.openaiEmailProvider') }}
+            </label>
+            <input
+              v-model="enableOpenAIEmailProvider"
+              id="bulk-edit-openai-email-provider-enabled"
+              type="checkbox"
+              aria-controls="bulk-edit-openai-email-provider"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+          </div>
+          <div
+            id="bulk-edit-openai-email-provider"
+            :class="!enableOpenAIEmailProvider && 'pointer-events-none opacity-50'"
+          >
+            <Select
+              v-model="openAIEmailProvider"
+              :options="openAIEmailProviderOptions"
+              aria-labelledby="bulk-edit-openai-email-provider-label"
+            />
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openaiEmailProviderHint') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <div class="mb-3 flex items-center justify-between">
+            <label
+              id="bulk-edit-openai-phone-provider-label"
+              class="input-label mb-0"
+              for="bulk-edit-openai-phone-provider-enabled"
+            >
+              {{ t('admin.accounts.openaiPhoneProvider') }}
+            </label>
+            <input
+              v-model="enableOpenAIPhoneProvider"
+              id="bulk-edit-openai-phone-provider-enabled"
+              type="checkbox"
+              aria-controls="bulk-edit-openai-phone-provider"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+          </div>
+          <div
+            id="bulk-edit-openai-phone-provider"
+            :class="!enableOpenAIPhoneProvider && 'pointer-events-none opacity-50'"
+          >
+            <Select
+              v-model="openAIPhoneProvider"
+              :options="openAIPhoneProviderOptions"
+              aria-labelledby="bulk-edit-openai-phone-provider-label"
+            />
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openaiPhoneProviderHint') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <div class="mb-3 flex items-center justify-between">
+            <label
+              id="bulk-edit-openai-password-label"
+              class="input-label mb-0"
+              for="bulk-edit-openai-password-enabled"
+            >
+              {{ t('admin.accounts.openaiStoredPassword') }}
+            </label>
+            <input
+              v-model="enableOpenAIPassword"
+              id="bulk-edit-openai-password-enabled"
+              type="checkbox"
+              aria-controls="bulk-edit-openai-password"
+              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+          </div>
+          <div
+            id="bulk-edit-openai-password"
+            :class="!enableOpenAIPassword && 'pointer-events-none opacity-50'"
+          >
+            <input
+              v-model="openAIStoredPassword"
+              type="password"
+              class="input"
+              autocomplete="new-password"
+              :placeholder="t('admin.accounts.openaiStoredPasswordPlaceholder')"
+              aria-labelledby="bulk-edit-openai-password-label"
+            />
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openaiStoredPasswordHint') }}
+            </p>
+          </div>
+        </div>
+
         <div class="mb-3 flex items-center justify-between">
           <label
             id="bulk-edit-openai-ws-mode-label"
@@ -1012,6 +1111,9 @@ const enableStatus = ref(false)
 const enableGroups = ref(false)
 const enableOpenAIPassthrough = ref(false)
 const enableOpenAIWSMode = ref(false)
+const enableOpenAIEmailProvider = ref(false)
+const enableOpenAIPhoneProvider = ref(false)
+const enableOpenAIPassword = ref(false)
 const enableRpmLimit = ref(false)
 
 // State - field values
@@ -1035,6 +1137,9 @@ const status = ref<'active' | 'inactive'>('active')
 const groupIds = ref<number[]>([])
 const openaiPassthroughEnabled = ref(false)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openAIEmailProvider = ref<'none' | 'freemail'>('none')
+const openAIPhoneProvider = ref<'none' | 'hero-sms'>('none')
+const openAIStoredPassword = ref('')
 const rpmLimitEnabled = ref(false)
 const bulkBaseRpm = ref<number | null>(null)
 const bulkRpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
@@ -1072,6 +1177,14 @@ const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
   { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') }
+])
+const openAIEmailProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiEmailProviderNone') },
+  { value: 'freemail', label: t('admin.accounts.openaiEmailProviderFreemail') }
+])
+const openAIPhoneProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiPhoneProviderNone') },
+  { value: 'hero-sms', label: t('admin.accounts.openaiPhoneProviderHeroSMS') }
 ])
 const openAIWSModeConcurrencyHintKey = computed(() =>
   resolveOpenAIWSModeConcurrencyHintKey(openaiOAuthResponsesWebSocketV2Mode.value)
@@ -1212,6 +1325,21 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     }
   }
 
+  if (enableOpenAIEmailProvider.value) {
+    const extra = ensureExtra()
+    extra.openai_email_provider = openAIEmailProvider.value === 'freemail' ? 'freemail' : ''
+  }
+
+  if (enableOpenAIPhoneProvider.value) {
+    const extra = ensureExtra()
+    extra.openai_phone_provider = openAIPhoneProvider.value === 'hero-sms' ? 'hero-sms' : ''
+  }
+
+  if (enableOpenAIPassword.value) {
+    const extra = ensureExtra()
+    extra.password = openAIStoredPassword.value.trim()
+  }
+
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     // 统一使用 model_mapping 字段
     if (modelRestrictionMode.value === 'whitelist') {
@@ -1344,6 +1472,9 @@ const handleSubmit = async () => {
     enableStatus.value ||
     enableGroups.value ||
     enableOpenAIWSMode.value ||
+    enableOpenAIEmailProvider.value ||
+    enableOpenAIPhoneProvider.value ||
+    enableOpenAIPassword.value ||
     enableRpmLimit.value ||
     userMsgQueueMode.value !== null
 
@@ -1437,6 +1568,9 @@ watch(
       enableGroups.value = false
       enableOpenAIPassthrough.value = false
       enableOpenAIWSMode.value = false
+      enableOpenAIEmailProvider.value = false
+      enableOpenAIPhoneProvider.value = false
+      enableOpenAIPassword.value = false
       enableRpmLimit.value = false
 
       // Reset all values
@@ -1456,6 +1590,9 @@ watch(
       status.value = 'active'
       groupIds.value = []
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+      openAIEmailProvider.value = 'none'
+      openAIPhoneProvider.value = 'none'
+      openAIStoredPassword.value = ''
       rpmLimitEnabled.value = false
       bulkBaseRpm.value = null
       bulkRpmStrategy.value = 'tiered'

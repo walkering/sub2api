@@ -67,6 +67,17 @@
         </div>
       </div>
 
+      <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-500 dark:bg-dark-800">
+        <TextArea
+          v-model="testPrompt"
+          :label="promptLabel"
+          :placeholder="promptPlaceholder"
+          :hint="promptHint"
+          :disabled="running"
+          rows="3"
+        />
+      </div>
+
       <div class="max-h-[420px] overflow-y-auto rounded-xl border border-gray-200 bg-white dark:border-dark-500 dark:bg-dark-800">
         <div
           v-for="result in results"
@@ -129,6 +140,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
+import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
 import { streamAccountTest, type AccountTestStreamEvent } from '@/utils/accountTestStream'
@@ -167,6 +179,7 @@ const { t } = useI18n()
 const results = ref<BatchTestResult[]>([])
 const availableModels = ref<SelectableClaudeModel[]>([])
 const selectedModelId = ref('')
+const testPrompt = ref('')
 const loadingModels = ref(false)
 const modelError = ref('')
 const running = ref(false)
@@ -174,6 +187,21 @@ const activeRunOrdinal = ref(0)
 const modelLoadToken = ref(0)
 let abortController: AbortController | null = null
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const lastAppliedDefaultPrompt = ref('')
+const supportsGeminiImageTest = computed(() => {
+  const modelID = selectedModelId.value.toLowerCase()
+  if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
+  return props.accounts[0]?.platform === 'gemini' || props.accounts[0]?.platform === 'antigravity'
+})
+const supportsOpenAIImageTest = computed(() => {
+  const modelID = selectedModelId.value.toLowerCase()
+  if (!modelID.startsWith('gpt-image-')) return false
+  return props.accounts[0]?.platform === 'openai'
+})
+const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
+const promptLabel = computed(() => supportsImageTest.value ? t('admin.accounts.imagePromptLabel') : t('admin.accounts.testPromptLabel'))
+const promptPlaceholder = computed(() => supportsImageTest.value ? t('admin.accounts.imagePromptPlaceholder') : t('admin.accounts.testPromptPlaceholder'))
+const promptHint = computed(() => supportsImageTest.value ? t('admin.accounts.imageTestHint') : t('admin.accounts.testPromptHint'))
 
 const pendingCount = computed(() => results.value.filter((item) => item.status === 'pending').length)
 const runningCount = computed(() => results.value.filter((item) => item.status === 'running').length)
@@ -204,6 +232,8 @@ function resetResults() {
   activeRunOrdinal.value = 0
   availableModels.value = []
   selectedModelId.value = ''
+  testPrompt.value = ''
+  lastAppliedDefaultPrompt.value = ''
   loadingModels.value = false
   modelError.value = ''
   results.value = props.accounts.map((account) => ({
@@ -213,6 +243,25 @@ function resetResults() {
     message: '',
     platform: account.platform
   }))
+}
+
+watch(selectedModelId, () => {
+  syncDefaultPrompt()
+})
+
+function getDefaultPrompt() {
+  return supportsImageTest.value
+    ? t('admin.accounts.imagePromptDefault')
+    : t('admin.accounts.testPromptDefault')
+}
+
+function syncDefaultPrompt() {
+  const nextDefault = getDefaultPrompt()
+  const current = testPrompt.value.trim()
+  if (current === '' || current === lastAppliedDefaultPrompt.value) {
+    testPrompt.value = nextDefault
+    lastAppliedDefaultPrompt.value = nextDefault
+  }
 }
 
 function resetRunState() {
@@ -272,26 +321,16 @@ async function loadAvailableModels() {
   selectedModelId.value = ''
 
   try {
-    const loadedModels = await Promise.all(results.value.map(async (result) => {
-      const models = await adminAPI.accounts.getAvailableModels(result.id)
-      return sortTestModels(models, result.platform)
-    }))
+    if (results.value.length === 0) {
+      return
+    }
+
+    const commonModels = sortTestModels(
+      await adminAPI.accounts.getCommonAvailableModels(results.value.map((result) => result.id)),
+      props.accounts[0]?.platform
+    )
     if (modelLoadToken.value !== currentToken) return
 
-    const commonModelMap = new Map<string, SelectableClaudeModel>()
-    for (const model of loadedModels[0] || []) {
-      commonModelMap.set(model.id, model)
-    }
-    for (const modelList of loadedModels.slice(1)) {
-      const idSet = new Set(modelList.map((model) => model.id))
-      for (const modelID of [...commonModelMap.keys()]) {
-        if (!idSet.has(modelID)) {
-          commonModelMap.delete(modelID)
-        }
-      }
-    }
-
-    const commonModels = (loadedModels[0] || []).filter((model) => commonModelMap.has(model.id))
     availableModels.value = commonModels
     selectedModelId.value = getDefaultModelId(commonModels, props.accounts[0]?.platform)
     if (commonModels.length === 0) {
@@ -299,7 +338,7 @@ async function loadAvailableModels() {
     }
   } catch (error) {
     if (modelLoadToken.value !== currentToken) return
-    console.error('Failed to load available models for batch account test:', error)
+    console.error('Failed to load common available models for batch account test:', error)
     modelError.value = t('admin.accounts.bulkTest.loadModelsFailed')
   } finally {
     if (modelLoadToken.value === currentToken) {
@@ -379,6 +418,7 @@ async function startBatchTest() {
           accountId: account.id,
           authToken: token,
           modelId: account.selectedModelId,
+          prompt: testPrompt.value.trim(),
           signal: abortController.signal,
           onEvent: (event: AccountTestStreamEvent) => {
             if (event.type === 'test_start') {

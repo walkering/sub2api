@@ -263,6 +263,19 @@ export async function getUsage(id: number, source?: 'passive' | 'active'): Promi
   return data
 }
 
+export interface BatchUsageResponse {
+  usage: Record<string, AccountUsageInfo>
+}
+
+export async function getBatchUsage(accountIds: number[], source: 'passive' | 'active' = 'passive'): Promise<BatchUsageResponse> {
+  const { data } = await apiClient.post<BatchUsageResponse>('/admin/accounts/usage/batch', {
+    account_ids: accountIds
+  }, {
+    params: { source }
+  })
+  return data
+}
+
 /**
  * Clear account rate limit status
  * @param id - Account ID
@@ -467,6 +480,18 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+/**
+ * Get common available models shared by multiple accounts
+ * @param accountIds - Account IDs to intersect
+ * @returns List of common available models
+ */
+export async function getCommonAvailableModels(accountIds: number[]): Promise<ClaudeModel[]> {
+  const { data } = await apiClient.post<ClaudeModel[]>('/admin/accounts/models/common', {
+    account_ids: accountIds
+  })
+  return data
+}
+
 export interface CRSPreviewAccount {
   crs_account_id: string
   kind: string
@@ -615,8 +640,40 @@ export interface BatchOperationResult {
   total: number
   success: number
   failed: number
+  skipped?: number
   errors?: Array<{ account_id: number; error: string }>
   warnings?: Array<{ account_id: number; warning: string }>
+}
+
+export interface OpenAIAutoReauthJobStartResult {
+  job_id: string
+}
+
+export interface OpenAIAutoReauthJobLogEntry {
+  seq: number
+  at: string
+  level: 'info' | 'warn' | 'error' | string
+  message: string
+  account_id?: number
+}
+
+export interface OpenAIAutoReauthJobIssue {
+  account_id: number
+  message: string
+}
+
+export interface OpenAIAutoReauthJobStatus {
+  job_id: string
+  status: 'running' | 'completed' | string
+  total: number
+  success: number
+  failed: number
+  skipped: number
+  started_at: string
+  finished_at?: string
+  logs: OpenAIAutoReauthJobLogEntry[]
+  errors: OpenAIAutoReauthJobIssue[]
+  warnings: OpenAIAutoReauthJobIssue[]
 }
 
 /**
@@ -646,6 +703,35 @@ export async function batchRefresh(accountIds: number[]): Promise<BatchOperation
 }
 
 /**
+ * Batch re-login OpenAI OAuth accounts whose token has expired
+ * @param accountIds - Array of account IDs
+ * @returns Batch operation result
+ */
+export async function batchOpenAIAutoReauth(
+  accountIds: number[],
+  options?: {
+    proxy_enabled?: boolean
+    proxy_endpoint?: string
+  }
+): Promise<OpenAIAutoReauthJobStartResult> {
+  const { data } = await apiClient.post<OpenAIAutoReauthJobStartResult>('/admin/accounts/batch-openai-auto-reauth', {
+    account_ids: accountIds,
+    proxy_enabled: options?.proxy_enabled === true,
+    proxy_endpoint: options?.proxy_endpoint || ''
+  }, {
+    timeout: 30000
+  })
+  return data
+}
+
+export async function getOpenAIAutoReauthJob(jobId: string, after?: number): Promise<OpenAIAutoReauthJobStatus> {
+  const { data } = await apiClient.get<OpenAIAutoReauthJobStatus>(`/admin/accounts/openai-auto-reauth-jobs/${jobId}`, {
+    params: typeof after === 'number' && after > 0 ? { after } : undefined
+  })
+  return data
+}
+
+/**
  * Set privacy for an Antigravity OAuth account
  * @param id - Account ID
  * @returns Updated account
@@ -670,6 +756,7 @@ export const accountsAPI = {
   getStats,
   clearError,
   getUsage,
+  getBatchUsage,
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,
@@ -679,6 +766,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getCommonAvailableModels,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,
@@ -692,6 +780,8 @@ export const accountsAPI = {
   getAntigravityDefaultModelMapping,
   batchClearError,
   batchRefresh,
+  batchOpenAIAutoReauth,
+  getOpenAIAutoReauthJob,
   setPrivacy
 }
 

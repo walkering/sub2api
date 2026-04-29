@@ -85,6 +85,15 @@
                 <span class="hidden md:inline">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
               </button>
 
+              <button
+                @click="showAutomation = true"
+                class="btn btn-secondary"
+                :title="t('admin.accounts.automation.open')"
+              >
+                <Icon name="sparkles" size="md" class="mr-1.5" />
+                <span class="hidden md:inline">{{ t('admin.accounts.automation.open') }}</span>
+              </button>
+
               <!-- Column Settings Dropdown -->
               <div class="relative" ref="columnDropdownRef">
                 <button
@@ -239,6 +248,9 @@
               :account="row"
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
+              :prefetched-usage="usageByAccountId[String(row.id)]"
+              :prefetched-usage-loading="usageBatchLoading"
+              :use-prefetched-usage="true"
               :manual-refresh-token="usageManualRefreshToken"
             />
           </template>
@@ -314,6 +326,7 @@
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal :show="showBulkEdit" :account-ids="selIds" :selected-platforms="selPlatforms" :selected-types="selTypes" :proxies="proxies" :groups="groups" @close="showBulkEdit = false" @updated="handleBulkUpdated" />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
+    <AccountAutomationModal :show="showAutomation" :groups="groups" @close="showAutomation = false" @completed="reload" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -352,6 +365,7 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import AccountAutomationModal from '@/components/admin/account/AccountAutomationModal.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -364,7 +378,7 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
-import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, AccountUsageInfo } from '@/types'
 import type { AccountTestTarget } from '@/api/admin/accounts'
 
 const { t } = useI18n()
@@ -408,6 +422,7 @@ const loadingBulkTestTargets = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showAutomation = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -481,6 +496,9 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+const usageByAccountId = ref<Record<string, AccountUsageInfo | null>>({})
+const usageBatchLoading = ref(false)
+const usageBatchReqSeq = ref(0)
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -530,6 +548,43 @@ const refreshTodayStatsBatch = async () => {
   } finally {
     if (reqSeq === todayStatsReqSeq.value) {
       todayStatsLoading.value = false
+    }
+  }
+}
+
+const refreshUsageBatch = async () => {
+  if (hiddenColumns.has('usage')) {
+    usageBatchLoading.value = false
+    return
+  }
+
+  const accountIDs = accounts.value
+    .filter(account => account.type === 'oauth' || account.type === 'setup-token')
+    .map(account => account.id)
+  const reqSeq = ++usageBatchReqSeq.value
+
+  if (accountIDs.length === 0) {
+    usageByAccountId.value = {}
+    usageBatchLoading.value = false
+    return
+  }
+
+  usageBatchLoading.value = true
+  try {
+    const result = await adminAPI.accounts.getBatchUsage(accountIDs, 'passive')
+    if (reqSeq !== usageBatchReqSeq.value) return
+    const nextUsage: Record<string, AccountUsageInfo | null> = {}
+    for (const accountID of accountIDs) {
+      const key = String(accountID)
+      nextUsage[key] = result.usage?.[key] ?? null
+    }
+    usageByAccountId.value = nextUsage
+  } catch (error) {
+    if (reqSeq !== usageBatchReqSeq.value) return
+    console.error('Failed to load account usage batch:', error)
+  } finally {
+    if (reqSeq === usageBatchReqSeq.value) {
+      usageBatchLoading.value = false
     }
   }
 }
@@ -637,6 +692,11 @@ const toggleColumn = (key: string) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
+    if (key === 'usage') {
+      refreshUsageBatch().catch((error) => {
+        console.error('Failed to load account usage batch after showing column:', error)
+      })
+    }
   }
 }
 
@@ -731,6 +791,7 @@ const load = async () => {
     delete requestParams.lite
   }
   await refreshTodayStatsBatch()
+  await refreshUsageBatch()
 }
 
 const reload = async () => {
@@ -739,6 +800,7 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  await refreshUsageBatch()
 }
 
 const debouncedReload = () => {
@@ -780,6 +842,9 @@ watch(loading, (isLoading, wasLoading) => {
     pendingTodayStatsRefresh.value = false
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
+    })
+    refreshUsageBatch().catch((error) => {
+      console.error('Failed to refresh account usage batch after table load:', error)
     })
   }
 })

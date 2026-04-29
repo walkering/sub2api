@@ -32,6 +32,9 @@ type stubConcurrencyCacheForTest struct {
 	// 记录调用
 	releasedAccountIDs []int64
 	releasedRequestIDs []string
+	apiKeyCounts       map[int64]int
+	apiKeyAcquireErr   error
+	releasedAPIKeyIDs  []int64
 }
 
 var _ ConcurrencyCache = (*stubConcurrencyCacheForTest)(nil)
@@ -93,6 +96,33 @@ func (c *stubConcurrencyCacheForTest) CleanupExpiredAccountSlots(_ context.Conte
 
 func (c *stubConcurrencyCacheForTest) CleanupStaleProcessSlots(_ context.Context, _ string) error {
 	return c.cleanupErr
+}
+
+func (c *stubConcurrencyCacheForTest) AcquireAPIKeySlot(_ context.Context, apiKeyID int64, _ string) error {
+	if c.apiKeyAcquireErr != nil {
+		return c.apiKeyAcquireErr
+	}
+	if c.apiKeyCounts == nil {
+		c.apiKeyCounts = map[int64]int{}
+	}
+	c.apiKeyCounts[apiKeyID]++
+	return nil
+}
+
+func (c *stubConcurrencyCacheForTest) ReleaseAPIKeySlot(_ context.Context, apiKeyID int64, _ string) error {
+	c.releasedAPIKeyIDs = append(c.releasedAPIKeyIDs, apiKeyID)
+	if c.apiKeyCounts != nil && c.apiKeyCounts[apiKeyID] > 0 {
+		c.apiKeyCounts[apiKeyID]--
+	}
+	return nil
+}
+
+func (c *stubConcurrencyCacheForTest) GetAPIKeyConcurrencyBatch(_ context.Context, apiKeyIDs []int64) (map[int64]int, error) {
+	result := make(map[int64]int, len(apiKeyIDs))
+	for _, apiKeyID := range apiKeyIDs {
+		result[apiKeyID] = c.apiKeyCounts[apiKeyID]
+	}
+	return result, nil
 }
 
 type trackingConcurrencyCache struct {
@@ -191,6 +221,33 @@ func TestAcquireUserSlot_UnlimitedConcurrency(t *testing.T) {
 	result, err := svc.AcquireUserSlot(context.Background(), 1, 0)
 	require.NoError(t, err)
 	require.True(t, result.Acquired)
+}
+
+func TestTrackAPIKeySlot(t *testing.T) {
+	cache := &stubConcurrencyCacheForTest{}
+	svc := NewConcurrencyService(cache)
+
+	result, err := svc.TrackAPIKeySlot(context.Background(), 7)
+	require.NoError(t, err)
+	require.True(t, result.Acquired)
+	require.Equal(t, 1, cache.apiKeyCounts[7])
+
+	result.ReleaseFunc()
+	require.Equal(t, 0, cache.apiKeyCounts[7])
+	require.Equal(t, []int64{7}, cache.releasedAPIKeyIDs)
+}
+
+func TestGetAPIKeyConcurrencyBatch(t *testing.T) {
+	cache := &stubConcurrencyCacheForTest{
+		apiKeyCounts: map[int64]int{10: 2, 20: 1},
+	}
+	svc := NewConcurrencyService(cache)
+
+	result, err := svc.GetAPIKeyConcurrencyBatch(context.Background(), []int64{10, 20, 30})
+	require.NoError(t, err)
+	require.Equal(t, 2, result[10])
+	require.Equal(t, 1, result[20])
+	require.Equal(t, 0, result[30])
 }
 
 func TestGenerateRequestID_UsesStablePrefixAndMonotonicCounter(t *testing.T) {

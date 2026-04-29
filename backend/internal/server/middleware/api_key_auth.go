@@ -112,6 +112,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
 		if cfg.RunMode == config.RunModeSimple {
+			ctx := context.WithValue(c.Request.Context(), ctxkey.APIKeyID, apiKey.ID)
+			c.Request = c.Request.WithContext(ctx)
 			c.Set(string(ContextKeyAPIKey), apiKey)
 			c.Set(string(ContextKeyUser), AuthSubject{
 				UserID:      apiKey.User.ID,
@@ -207,6 +209,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if subscription != nil {
 			c.Set(string(ContextKeySubscription), subscription)
 		}
+		ctx := context.WithValue(c.Request.Context(), ctxkey.APIKeyID, apiKey.ID)
+		c.Request = c.Request.WithContext(ctx)
 		c.Set(string(ContextKeyAPIKey), apiKey)
 		c.Set(string(ContextKeyUser), AuthSubject{
 			UserID:      apiKey.User.ID,

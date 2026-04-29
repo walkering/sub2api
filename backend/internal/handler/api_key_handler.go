@@ -18,13 +18,15 @@ import (
 
 // APIKeyHandler handles API key-related requests
 type APIKeyHandler struct {
-	apiKeyService *service.APIKeyService
+	apiKeyService      *service.APIKeyService
+	concurrencyService *service.ConcurrencyService
 }
 
 // NewAPIKeyHandler creates a new APIKeyHandler
-func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
+func NewAPIKeyHandler(apiKeyService *service.APIKeyService, concurrencyService *service.ConcurrencyService) *APIKeyHandler {
 	return &APIKeyHandler{
-		apiKeyService: apiKeyService,
+		apiKeyService:      apiKeyService,
+		concurrencyService: concurrencyService,
 	}
 }
 
@@ -99,6 +101,18 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	if h.concurrencyService != nil && len(keys) > 0 {
+		apiKeyIDs := make([]int64, 0, len(keys))
+		for i := range keys {
+			apiKeyIDs = append(apiKeyIDs, keys[i].ID)
+		}
+		if counts, ccErr := h.concurrencyService.GetAPIKeyConcurrencyBatch(c.Request.Context(), apiKeyIDs); ccErr == nil {
+			for i := range keys {
+				keys[i].CurrentConcurrency = counts[keys[i].ID]
+			}
+		}
 	}
 
 	out := make([]dto.APIKey, 0, len(keys))

@@ -2,9 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import BatchAccountTestModal from '../BatchAccountTestModal.vue'
 
-const { streamAccountTest, getAvailableModels } = vi.hoisted(() => ({
+const { streamAccountTest, getCommonAvailableModels } = vi.hoisted(() => ({
   streamAccountTest: vi.fn(),
-  getAvailableModels: vi.fn()
+  getCommonAvailableModels: vi.fn()
 }))
 
 vi.mock('@/utils/accountTestStream', () => ({
@@ -14,7 +14,7 @@ vi.mock('@/utils/accountTestStream', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      getAvailableModels
+      getCommonAvailableModels
     }
   }
 }))
@@ -49,19 +49,14 @@ describe('BatchAccountTestModal', () => {
       configurable: true
     })
     vi.mocked(streamAccountTest).mockReset()
-    vi.mocked(getAvailableModels).mockReset()
+    vi.mocked(getCommonAvailableModels).mockReset()
   })
 
   it('runs selected accounts sequentially with one shared selected model and emits completed', async () => {
-    vi.mocked(getAvailableModels)
-      .mockResolvedValueOnce([
-        { id: 'gpt-4.1', display_name: 'GPT-4.1' },
-        { id: 'gpt-5', display_name: 'GPT-5' }
-      ] as any)
-      .mockResolvedValueOnce([
-        { id: 'gpt-5', display_name: 'GPT-5' },
-        { id: 'gpt-4.1', display_name: 'GPT-4.1' }
-      ] as any)
+    vi.mocked(getCommonAvailableModels).mockResolvedValueOnce([
+      { id: 'gpt-4.1', display_name: 'GPT-4.1' },
+      { id: 'gpt-5', display_name: 'GPT-5' }
+    ] as any)
 
     vi.mocked(streamAccountTest)
       .mockImplementationOnce(async ({ onEvent }) => {
@@ -106,6 +101,11 @@ describe('BatchAccountTestModal', () => {
                 </option>
               </select>
             `
+          },
+          TextArea: {
+            props: ['modelValue'],
+            emits: ['update:modelValue'],
+            template: '<textarea class="textarea-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
           }
         }
       }
@@ -119,22 +119,25 @@ describe('BatchAccountTestModal', () => {
     const selects = wrapper.findAll('[data-test="model-select"]')
     expect(selects).toHaveLength(1)
     await selects[0]!.setValue('gpt-5')
+    await wrapper.find('textarea.textarea-stub').setValue('please reply with batch test ok')
 
     await startButton!.trigger('click')
     await flushPromises()
     await flushPromises()
 
-    expect(getAvailableModels).toHaveBeenCalledTimes(2)
+    expect(getCommonAvailableModels).toHaveBeenCalledTimes(1)
     expect(streamAccountTest).toHaveBeenCalledTimes(2)
     expect(vi.mocked(streamAccountTest).mock.calls[0]?.[0]).toMatchObject({
       accountId: 1,
       authToken: 'test-token',
-      modelId: 'gpt-5'
+      modelId: 'gpt-5',
+      prompt: 'please reply with batch test ok'
     })
     expect(vi.mocked(streamAccountTest).mock.calls[1]?.[0]).toMatchObject({
       accountId: 2,
       authToken: 'test-token',
-      modelId: 'gpt-5'
+      modelId: 'gpt-5',
+      prompt: 'please reply with batch test ok'
     })
     expect(wrapper.text()).toContain('first account ok')
     expect(wrapper.text()).toContain('second account failed')

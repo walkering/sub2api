@@ -417,6 +417,141 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
 }
 
+// GetUsageBatch 批量获取账号 usage 信息。
+// 当 source=passive 时，尽量只使用本地/缓存数据，避免列表页逐条发起高成本请求。
+func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []int64, source string) (map[int64]*UsageInfo, error) {
+	uniqueIDs := make([]int64, 0, len(accountIDs))
+	seen := make(map[int64]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID <= 0 {
+			continue
+		}
+		if _, exists := seen[accountID]; exists {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, accountID)
+	}
+
+	result := make(map[int64]*UsageInfo, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return result, nil
+	}
+
+	accounts, err := s.accountRepo.GetByIDs(ctx, uniqueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get accounts by ids failed: %w", err)
+	}
+	accountByID := make(map[int64]*Account, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			accountByID[account.ID] = account
+		}
+	}
+
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+
+	for _, accountID := range uniqueIDs {
+		account := accountByID[accountID]
+		if account == nil {
+			continue
+		}
+		acc := account
+		g.Go(func() error {
+			usage, usageErr := s.getUsageForBatch(gctx, acc, source)
+			if usageErr != nil {
+				return usageErr
+			}
+			mu.Lock()
+			result[acc.ID] = usage
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *AccountUsageService) getUsageForBatch(ctx context.Context, account *Account, source string) (*UsageInfo, error) {
+	if account == nil {
+		return nil, nil
+	}
+
+	passiveOnly := strings.EqualFold(strings.TrimSpace(source), "passive")
+
+	switch account.Platform {
+	case PlatformOpenAI:
+		if account.Type != AccountTypeOAuth {
+			return &UsageInfo{}, nil
+		}
+		if passiveOnly {
+			return s.getOpenAIUsagePassive(ctx, account)
+		}
+		return s.getOpenAIUsage(ctx, account)
+	case PlatformGemini:
+		return s.getGeminiUsage(ctx, account)
+	case PlatformAntigravity:
+		if passiveOnly {
+			return s.getAntigravityUsagePassive(account), nil
+		}
+		return s.getAntigravityUsage(ctx, account)
+	default:
+		if account.IsAnthropicOAuthOrSetupToken() && passiveOnly {
+			return s.getAnthropicPassiveUsage(ctx, account)
+		}
+		if account.Type == AccountTypeSetupToken && passiveOnly {
+			usage := s.estimateSetupTokenUsage(account)
+			s.addWindowStats(ctx, account, usage)
+			return usage, nil
+		}
+		if passiveOnly && account.IsAnthropicOAuthOrSetupToken() {
+			return s.getAnthropicPassiveUsage(ctx, account)
+		}
+		return s.GetUsage(ctx, account.ID)
+	}
+}
+
+func (s *AccountUsageService) getAnthropicPassiveUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if account == nil {
+		return nil, nil
+	}
+	info := s.estimateSetupTokenUsage(account)
+	info.Source = "passive"
+	if raw, ok := account.Extra["passive_usage_sampled_at"]; ok {
+		if str, ok := raw.(string); ok {
+			if t, err := time.Parse(time.RFC3339, str); err == nil {
+				info.UpdatedAt = &t
+			}
+		}
+	}
+	util7d := parseExtraFloat64(account.Extra["passive_usage_7d_utilization"])
+	reset7dRaw := parseExtraFloat64(account.Extra["passive_usage_7d_reset"])
+	if util7d > 0 || reset7dRaw > 0 {
+		var resetAt *time.Time
+		var remaining int
+		if reset7dRaw > 0 {
+			t := time.Unix(int64(reset7dRaw), 0)
+			resetAt = &t
+			remaining = int(time.Until(t).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		info.SevenDay = &UsageProgress{
+			Utilization:      util7d * 100,
+			ResetsAt:         resetAt,
+			RemainingSeconds: remaining,
+		}
+	}
+	s.addWindowStats(ctx, account, info)
+	return info, nil
+}
+
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。
 // 仅适用于 Anthropic OAuth / SetupToken 账号。
 func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int64) (*UsageInfo, error) {
@@ -543,6 +678,48 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	return usage, nil
 }
 
+func (s *AccountUsageService) getOpenAIUsagePassive(ctx context.Context, account *Account) (*UsageInfo, error) {
+	now := time.Now()
+	usage := &UsageInfo{
+		Source:    "passive",
+		UpdatedAt: &now,
+	}
+
+	if account == nil {
+		return usage, nil
+	}
+
+	if progress := buildCodexUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
+		usage.FiveHour = progress
+	}
+	if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
+		usage.SevenDay = progress
+	}
+
+	if rawUpdatedAt, ok := account.Extra["codex_usage_updated_at"]; ok {
+		if parsed, err := parseTime(fmt.Sprint(rawUpdatedAt)); err == nil {
+			usage.UpdatedAt = &parsed
+		}
+	}
+
+	if s.usageLogRepo == nil {
+		return usage, nil
+	}
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+		if usage.FiveHour == nil {
+			usage.FiveHour = &UsageProgress{Utilization: 0}
+		}
+		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
+	}
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+		if usage.SevenDay == nil {
+			usage.SevenDay = &UsageProgress{Utilization: 0}
+		}
+		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
+	}
+	return usage, nil
+}
+
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
 	if account == nil {
 		return false
@@ -599,7 +776,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, fmt.Errorf("no access token available")
 	}
 	modelID := openaipkg.DefaultTestModel
-	payload := createOpenAITestPayload(modelID, true)
+	payload := createOpenAITestPayload(modelID, true, "")
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal openai probe payload: %w", err)
@@ -824,6 +1001,35 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		return &UsageInfo{UpdatedAt: &now}, nil
 	}
 	return usage, nil
+}
+
+func (s *AccountUsageService) getAntigravityUsagePassive(account *Account) *UsageInfo {
+	now := time.Now()
+	info := &UsageInfo{
+		Source:    "passive",
+		UpdatedAt: &now,
+	}
+	if account == nil {
+		return info
+	}
+	msg := strings.ToLower(strings.TrimSpace(account.ErrorMessage))
+	if account.Status == StatusError {
+		switch {
+		case strings.Contains(msg, "401") || strings.Contains(msg, "unauthenticated") || strings.Contains(msg, "token_expired"):
+			info.ErrorCode = errorCodeUnauthenticated
+			info.NeedsReauth = true
+			info.Error = account.ErrorMessage
+		case strings.Contains(msg, "403") || strings.Contains(msg, "forbidden") || strings.Contains(msg, "violation") || strings.Contains(msg, "validation"):
+			enrichUsageWithAccountError(info, account)
+			if info.ForbiddenReason == "" {
+				info.ForbiddenReason = account.ErrorMessage
+			}
+		default:
+			info.Error = account.ErrorMessage
+			info.ErrorCode = errorCodeNetworkError
+		}
+	}
+	return info
 }
 
 // recalcAntigravityRemainingSeconds 重新计算 Antigravity UsageInfo 中各窗口的 RemainingSeconds

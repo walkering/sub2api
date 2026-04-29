@@ -48,6 +48,14 @@ type ConcurrencyCache interface {
 	CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error
 }
 
+// APIKeyConcurrencyCache 是可选扩展接口，用于按 API Key 维度记录实时并发占用。
+// 它不参与限流，只用于监控与展示。
+type APIKeyConcurrencyCache interface {
+	AcquireAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
+	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
+	GetAPIKeyConcurrencyBatch(ctx context.Context, apiKeyIDs []int64) (map[int64]int, error)
+}
+
 var (
 	requestIDPrefix  = initRequestIDPrefix()
 	requestIDCounter atomic.Uint64
@@ -201,6 +209,35 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 	}, nil
 }
 
+// TrackAPIKeySlot records a best-effort realtime API Key concurrency slot.
+// This does not enforce any limit; it only tracks current in-flight occupancy.
+func (s *ConcurrencyService) TrackAPIKeySlot(ctx context.Context, apiKeyID int64) (*AcquireResult, error) {
+	if s == nil || s.cache == nil || apiKeyID <= 0 {
+		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
+	}
+
+	cache, ok := s.cache.(APIKeyConcurrencyCache)
+	if !ok {
+		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
+	}
+
+	requestID := generateRequestID()
+	if err := cache.AcquireAPIKeySlot(ctx, apiKeyID, requestID); err != nil {
+		return nil, err
+	}
+
+	return &AcquireResult{
+		Acquired: true,
+		ReleaseFunc: func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := cache.ReleaseAPIKeySlot(bgCtx, apiKeyID, requestID); err != nil {
+				logger.LegacyPrintf("service.concurrency", "Warning: failed to release api key slot for %d (req=%s): %v", apiKeyID, requestID, err)
+			}
+		},
+	}, nil
+}
+
 // ============================================
 // Wait Queue Count Methods
 // ============================================
@@ -265,6 +302,25 @@ func (s *ConcurrencyService) DecrementAccountWaitCount(ctx context.Context, acco
 	if err := s.cache.DecrementAccountWaitCount(bgCtx, accountID); err != nil {
 		logger.LegacyPrintf("service.concurrency", "Warning: decrement wait count failed for account %d: %v", accountID, err)
 	}
+}
+
+// GetAPIKeyConcurrencyBatch gets current concurrency counts for multiple API keys.
+func (s *ConcurrencyService) GetAPIKeyConcurrencyBatch(ctx context.Context, apiKeyIDs []int64) (map[int64]int, error) {
+	if len(apiKeyIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+	if s == nil || s.cache == nil {
+		return map[int64]int{}, nil
+	}
+	cache, ok := s.cache.(APIKeyConcurrencyCache)
+	if !ok {
+		return map[int64]int{}, nil
+	}
+	redisCtx := ctx
+	if redisCtx == nil {
+		redisCtx = context.Background()
+	}
+	return cache.GetAPIKeyConcurrencyBatch(redisCtx, apiKeyIDs)
 }
 
 // GetAccountWaitingCount gets current wait queue count for an account.

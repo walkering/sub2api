@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -195,6 +196,26 @@ func wrapReleaseOnDone(ctx context.Context, releaseFunc func()) func() {
 	return release
 }
 
+func wrapAPIKeyTracking(ctx context.Context, concurrencyService *service.ConcurrencyService, releaseFunc func()) func() {
+	if releaseFunc == nil || concurrencyService == nil {
+		return releaseFunc
+	}
+	apiKeyID, _ := ctx.Value(ctxkey.APIKeyID).(int64)
+	if apiKeyID <= 0 {
+		return releaseFunc
+	}
+
+	result, err := concurrencyService.TrackAPIKeySlot(ctx, apiKeyID)
+	if err != nil || result == nil || result.ReleaseFunc == nil {
+		return releaseFunc
+	}
+
+	return func() {
+		result.ReleaseFunc()
+		releaseFunc()
+	}
+}
+
 // IncrementWaitCount increments the wait count for a user
 func (h *ConcurrencyHelper) IncrementWaitCount(ctx context.Context, userID int64, maxWait int) (bool, error) {
 	return h.concurrencyService.IncrementWaitCount(ctx, userID, maxWait)
@@ -225,7 +246,7 @@ func (h *ConcurrencyHelper) TryAcquireUserSlot(ctx context.Context, userID int64
 	if !result.Acquired {
 		return nil, false, nil
 	}
-	return result.ReleaseFunc, true, nil
+	return wrapAPIKeyTracking(ctx, h.concurrencyService, result.ReleaseFunc), true, nil
 }
 
 // TryAcquireAccountSlot 尝试立即获取账号并发槽位。
@@ -363,6 +384,9 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 			}
 
 			if result.Acquired {
+				if slotType == "user" {
+					return wrapAPIKeyTracking(ctx, h.concurrencyService, result.ReleaseFunc), nil
+				}
 				return result.ReleaseFunc, nil
 			}
 			backoff = nextBackoff(backoff)

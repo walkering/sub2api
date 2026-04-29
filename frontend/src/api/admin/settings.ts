@@ -302,6 +302,21 @@ export interface SystemSettings {
   registration_email_suffix_whitelist: string[];
   promo_code_enabled: boolean;
   password_reset_enabled: boolean;
+  openai_oauth_default_password_configured: boolean;
+  openai_oauth_freemail_base_url: string;
+  openai_oauth_freemail_username: string;
+  openai_oauth_freemail_password_configured: boolean;
+  openai_oauth_freemail_domain: string;
+  openai_oauth_phone_base_url: string;
+  openai_oauth_phone_api_key_configured: boolean;
+  openai_oauth_phone_service_code: string;
+  openai_oauth_phone_country: string;
+  openai_oauth_phone_operator: string;
+  openai_oauth_phone_max_price: number;
+  openai_oauth_phone_fixed_price: boolean;
+  openai_oauth_phone_lease_minutes: number;
+  openai_oauth_phone_poll_interval_ms: number;
+  openai_oauth_phone_resend_after_seconds: number;
   frontend_url: string;
   invitation_code_enabled: boolean;
   totp_enabled: boolean; // TOTP 双因素认证
@@ -495,6 +510,21 @@ export interface UpdateSettingsRequest {
   registration_email_suffix_whitelist?: string[];
   promo_code_enabled?: boolean;
   password_reset_enabled?: boolean;
+  openai_oauth_default_password?: string;
+  openai_oauth_freemail_base_url?: string;
+  openai_oauth_freemail_username?: string;
+  openai_oauth_freemail_password?: string;
+  openai_oauth_freemail_domain?: string;
+  openai_oauth_phone_base_url?: string;
+  openai_oauth_phone_api_key?: string;
+  openai_oauth_phone_service_code?: string;
+  openai_oauth_phone_country?: string;
+  openai_oauth_phone_operator?: string;
+  openai_oauth_phone_max_price?: number;
+  openai_oauth_phone_fixed_price?: boolean;
+  openai_oauth_phone_lease_minutes?: number;
+  openai_oauth_phone_poll_interval_ms?: number;
+  openai_oauth_phone_resend_after_seconds?: number;
   frontend_url?: string;
   invitation_code_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证

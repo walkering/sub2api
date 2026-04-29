@@ -60,6 +60,9 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
+
+	// CurrentConcurrency 当前 API Key 实时并发占用，仅用于展示/监控
+	CurrentConcurrency int
 }
 
 func (k *APIKey) IsActive() bool {

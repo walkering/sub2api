@@ -18,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/imroc/req/v3"
 	"golang.org/x/sync/singleflight"
 )
@@ -79,6 +80,19 @@ var backendModeSF singleflight.Group
 const backendModeCacheTTL = 60 * time.Second
 const backendModeErrorTTL = 5 * time.Second
 const backendModeDBTimeout = 5 * time.Second
+
+// cachedAccountFairRotation caches the account fair rotation switch.
+type cachedAccountFairRotation struct {
+	value     bool
+	expiresAt int64 // unix nano
+}
+
+var accountFairRotationCache atomic.Value // *cachedAccountFairRotation
+var accountFairRotationSF singleflight.Group
+
+const accountFairRotationCacheTTL = 60 * time.Second
+const accountFairRotationErrorTTL = 5 * time.Second
+const accountFairRotationDBTimeout = 5 * time.Second
 
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
@@ -399,6 +413,77 @@ func (s *SettingService) GetFrontendURL(ctx context.Context) string {
 	return s.cfg.Server.FrontendURL
 }
 
+// GetOpenAIOAuthDefaultPassword returns the configured fallback password for newly created OpenAI OAuth accounts.
+func (s *SettingService) GetOpenAIOAuthDefaultPassword(ctx context.Context) string {
+	if s == nil || s.settingRepo == nil {
+		return ""
+	}
+	val, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAIOAuthDefaultPassword)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(val)
+}
+
+func (s *SettingService) GetOpenAIOAuthFreemailConfig(ctx context.Context) *openai.FreeMailOTPConfig {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	settings, err := s.GetAllSettings(ctx)
+	if err != nil || settings == nil {
+		return nil
+	}
+	baseURL := strings.TrimSpace(settings.OpenAIOAuthFreemailBaseURL)
+	username := strings.TrimSpace(settings.OpenAIOAuthFreemailUsername)
+	password := strings.TrimSpace(settings.OpenAIOAuthFreemailPassword)
+	domain := strings.TrimSpace(settings.OpenAIOAuthFreemailDomain)
+	if baseURL == "" && username == "" && password == "" && domain == "" {
+		return nil
+	}
+	return &openai.FreeMailOTPConfig{
+		BaseURL:  baseURL,
+		Username: username,
+		Password: password,
+		Domain:   domain,
+	}
+}
+
+func (s *SettingService) GetOpenAIOAuthPhoneOTPConfig(ctx context.Context) *openai.PhoneOTPProviderConfig {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	settings, err := s.GetAllSettings(ctx)
+	if err != nil || settings == nil {
+		return nil
+	}
+	baseURL := strings.TrimSpace(settings.OpenAIOAuthPhoneBaseURL)
+	apiKey := strings.TrimSpace(settings.OpenAIOAuthPhoneAPIKey)
+	serviceCode := strings.TrimSpace(settings.OpenAIOAuthPhoneServiceCode)
+	country := strings.TrimSpace(settings.OpenAIOAuthPhoneCountry)
+	operator := strings.TrimSpace(settings.OpenAIOAuthPhoneOperator)
+	if baseURL == "" && apiKey == "" && serviceCode == "" && country == "" && operator == "" {
+		return nil
+	}
+	var maxPrice *float64
+	if settings.OpenAIOAuthPhoneMaxPrice > 0 {
+		value := settings.OpenAIOAuthPhoneMaxPrice
+		maxPrice = &value
+	}
+	return &openai.PhoneOTPProviderConfig{
+		Provider:           "hero-sms",
+		BaseURL:            baseURL,
+		APIKey:             apiKey,
+		ServiceCode:        serviceCode,
+		Country:            country,
+		Operator:           operator,
+		MaxPrice:           maxPrice,
+		FixedPrice:         settings.OpenAIOAuthPhoneFixedPrice,
+		LeaseMinutes:       settings.OpenAIOAuthPhoneLeaseMinutes,
+		PollIntervalMillis: settings.OpenAIOAuthPhonePollIntervalMS,
+		ResendAfterSeconds: settings.OpenAIOAuthPhoneResendAfterSeconds,
+	}
+}
+
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
 	keys := []string{
@@ -577,6 +662,36 @@ func clampChannelMonitorInterval(v int) int {
 		return channelMonitorIntervalMax
 	}
 	return v
+}
+
+func parseIntWithFallback(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func parseFloatWithFallback(raw string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func maxInt(value int, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func maxFloat64(value float64, fallback float64) float64 {
+	if value < 0 {
+		return fallback
+	}
+	return value
 }
 
 // ChannelMonitorRuntime is the lightweight view of the channel monitor feature
@@ -1064,6 +1179,27 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
+	if strings.TrimSpace(settings.OpenAIOAuthDefaultPassword) != "" {
+		updates[SettingKeyOpenAIOAuthDefaultPassword] = strings.TrimSpace(settings.OpenAIOAuthDefaultPassword)
+	}
+	updates[SettingKeyOpenAIOAuthFreemailBaseURL] = strings.TrimSpace(settings.OpenAIOAuthFreemailBaseURL)
+	updates[SettingKeyOpenAIOAuthFreemailUsername] = strings.TrimSpace(settings.OpenAIOAuthFreemailUsername)
+	if strings.TrimSpace(settings.OpenAIOAuthFreemailPassword) != "" {
+		updates[SettingKeyOpenAIOAuthFreemailPassword] = strings.TrimSpace(settings.OpenAIOAuthFreemailPassword)
+	}
+	updates[SettingKeyOpenAIOAuthFreemailDomain] = strings.ToLower(strings.TrimSpace(settings.OpenAIOAuthFreemailDomain))
+	updates[SettingKeyOpenAIOAuthPhoneBaseURL] = strings.TrimSpace(settings.OpenAIOAuthPhoneBaseURL)
+	if strings.TrimSpace(settings.OpenAIOAuthPhoneAPIKey) != "" {
+		updates[SettingKeyOpenAIOAuthPhoneAPIKey] = strings.TrimSpace(settings.OpenAIOAuthPhoneAPIKey)
+	}
+	updates[SettingKeyOpenAIOAuthPhoneServiceCode] = strings.TrimSpace(settings.OpenAIOAuthPhoneServiceCode)
+	updates[SettingKeyOpenAIOAuthPhoneCountry] = strings.TrimSpace(settings.OpenAIOAuthPhoneCountry)
+	updates[SettingKeyOpenAIOAuthPhoneOperator] = strings.TrimSpace(settings.OpenAIOAuthPhoneOperator)
+	updates[SettingKeyOpenAIOAuthPhoneMaxPrice] = strconv.FormatFloat(maxFloat64(settings.OpenAIOAuthPhoneMaxPrice, 0), 'f', -1, 64)
+	updates[SettingKeyOpenAIOAuthPhoneFixedPrice] = strconv.FormatBool(settings.OpenAIOAuthPhoneFixedPrice)
+	updates[SettingKeyOpenAIOAuthPhoneLeaseMinutes] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhoneLeaseMinutes, 20))
+	updates[SettingKeyOpenAIOAuthPhonePollIntervalMS] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhonePollIntervalMS, 5000))
+	updates[SettingKeyOpenAIOAuthPhoneResendAfterSecs] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhoneResendAfterSeconds, 30))
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
@@ -1406,6 +1542,57 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 		backendModeCache.Store(&cachedBackendMode{
 			value:     enabled,
 			expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+	if val, ok := result.(bool); ok {
+		return val
+	}
+	return false
+}
+
+// IsAccountFairRotationEnabled checks if account fair rotation is enabled.
+// Uses the same safe-default, TTL-based cache strategy as other DB-backed switches.
+func (s *SettingService) IsAccountFairRotationEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	if cached, ok := accountFairRotationCache.Load().(*cachedAccountFairRotation); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.value
+		}
+	}
+	result, _, _ := accountFairRotationSF.Do(SettingKeyAccountFairRotationEnabled, func() (any, error) {
+		if cached, ok := accountFairRotationCache.Load().(*cachedAccountFairRotation); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.value, nil
+			}
+		}
+
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountFairRotationDBTimeout)
+		defer cancel()
+
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyAccountFairRotationEnabled)
+		if err != nil {
+			if errors.Is(err, ErrSettingNotFound) {
+				accountFairRotationCache.Store(&cachedAccountFairRotation{
+					value:     false,
+					expiresAt: time.Now().Add(accountFairRotationCacheTTL).UnixNano(),
+				})
+				return false, nil
+			}
+			slog.Warn("failed to get account_fair_rotation_enabled setting", "error", err)
+			accountFairRotationCache.Store(&cachedAccountFairRotation{
+				value:     false,
+				expiresAt: time.Now().Add(accountFairRotationErrorTTL).UnixNano(),
+			})
+			return false, nil
+		}
+
+		enabled := value == "true"
+		accountFairRotationCache.Store(&cachedAccountFairRotation{
+			value:     enabled,
+			expiresAt: time.Now().Add(accountFairRotationCacheTTL).UnixNano(),
 		})
 		return enabled, nil
 	})
@@ -1849,6 +2036,16 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyForceEmailOnThirdPartySignup:             "false",
 		SettingKeySMTPPort:                                 "587",
 		SettingKeySMTPUseTLS:                               "false",
+		SettingKeyOpenAIOAuthPhoneBaseURL:                  "https://hero-sms.com/stubs/handler_api.php",
+		SettingKeyOpenAIOAuthPhoneAPIKey:                   "",
+		SettingKeyOpenAIOAuthPhoneServiceCode:              "",
+		SettingKeyOpenAIOAuthPhoneCountry:                  "",
+		SettingKeyOpenAIOAuthPhoneOperator:                 "",
+		SettingKeyOpenAIOAuthPhoneMaxPrice:                 "0",
+		SettingKeyOpenAIOAuthPhoneFixedPrice:               "false",
+		SettingKeyOpenAIOAuthPhoneLeaseMinutes:             "20",
+		SettingKeyOpenAIOAuthPhonePollIntervalMS:           "5000",
+		SettingKeyOpenAIOAuthPhoneResendAfterSecs:          "30",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -1895,36 +2092,51 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	result := &SystemSettings{
-		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
-		EmailVerifyEnabled:               emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
-		PasswordResetEnabled:             emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                      settings[SettingKeyFrontendURL],
-		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
-		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
-		SMTPHost:                         settings[SettingKeySMTPHost],
-		SMTPUsername:                     settings[SettingKeySMTPUsername],
-		SMTPFrom:                         settings[SettingKeySMTPFrom],
-		SMTPFromName:                     settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                       settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:           settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:     settings[SettingKeyTurnstileSecretKey] != "",
-		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
-		SiteLogo:                         settings[SettingKeySiteLogo],
-		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
-		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
-		ContactInfo:                      settings[SettingKeyContactInfo],
-		DocURL:                           settings[SettingKeyDocURL],
-		HomeContent:                      settings[SettingKeyHomeContent],
-		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
-		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
-		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		RegistrationEnabled:                   settings[SettingKeyRegistrationEnabled] == "true",
+		EmailVerifyEnabled:                    emailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:      ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		PromoCodeEnabled:                      settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
+		PasswordResetEnabled:                  emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
+		OpenAIOAuthDefaultPasswordConfigured:  strings.TrimSpace(settings[SettingKeyOpenAIOAuthDefaultPassword]) != "",
+		OpenAIOAuthFreemailBaseURL:            strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailBaseURL]),
+		OpenAIOAuthFreemailUsername:           strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailUsername]),
+		OpenAIOAuthFreemailPasswordConfigured: strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailPassword]) != "",
+		OpenAIOAuthFreemailDomain:             strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailDomain]),
+		OpenAIOAuthPhoneBaseURL:               strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneBaseURL]),
+		OpenAIOAuthPhoneAPIKeyConfigured:      strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneAPIKey]) != "",
+		OpenAIOAuthPhoneServiceCode:           strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneServiceCode]),
+		OpenAIOAuthPhoneCountry:               strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneCountry]),
+		OpenAIOAuthPhoneOperator:              strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneOperator]),
+		OpenAIOAuthPhoneMaxPrice:              parseFloatWithFallback(settings[SettingKeyOpenAIOAuthPhoneMaxPrice], 0),
+		OpenAIOAuthPhoneFixedPrice:            settings[SettingKeyOpenAIOAuthPhoneFixedPrice] == "true",
+		OpenAIOAuthPhoneLeaseMinutes:          parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhoneLeaseMinutes], 20),
+		OpenAIOAuthPhonePollIntervalMS:        parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhonePollIntervalMS], 5000),
+		OpenAIOAuthPhoneResendAfterSeconds:    parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhoneResendAfterSecs], 30),
+		FrontendURL:                           settings[SettingKeyFrontendURL],
+		InvitationCodeEnabled:                 settings[SettingKeyInvitationCodeEnabled] == "true",
+		TotpEnabled:                           settings[SettingKeyTotpEnabled] == "true",
+		SMTPHost:                              settings[SettingKeySMTPHost],
+		SMTPUsername:                          settings[SettingKeySMTPUsername],
+		SMTPFrom:                              settings[SettingKeySMTPFrom],
+		SMTPFromName:                          settings[SettingKeySMTPFromName],
+		SMTPUseTLS:                            settings[SettingKeySMTPUseTLS] == "true",
+		SMTPPasswordConfigured:                settings[SettingKeySMTPPassword] != "",
+		TurnstileEnabled:                      settings[SettingKeyTurnstileEnabled] == "true",
+		TurnstileSiteKey:                      settings[SettingKeyTurnstileSiteKey],
+		TurnstileSecretKeyConfigured:          settings[SettingKeyTurnstileSecretKey] != "",
+		SiteName:                              s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteLogo:                              settings[SettingKeySiteLogo],
+		SiteSubtitle:                          s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		APIBaseURL:                            settings[SettingKeyAPIBaseURL],
+		ContactInfo:                           settings[SettingKeyContactInfo],
+		DocURL:                                settings[SettingKeyDocURL],
+		HomeContent:                           settings[SettingKeyHomeContent],
+		HideCcsImportButton:                   settings[SettingKeyHideCcsImportButton] == "true",
+		PurchaseSubscriptionEnabled:           settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionURL:               strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		CustomMenuItems:                       settings[SettingKeyCustomMenuItems],
+		CustomEndpoints:                       settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:                    settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],
@@ -1977,6 +2189,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// 敏感信息直接返回，方便测试连接时使用
+	result.OpenAIOAuthDefaultPassword = settings[SettingKeyOpenAIOAuthDefaultPassword]
+	result.OpenAIOAuthFreemailPassword = settings[SettingKeyOpenAIOAuthFreemailPassword]
+	result.OpenAIOAuthPhoneAPIKey = settings[SettingKeyOpenAIOAuthPhoneAPIKey]
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
 	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
 

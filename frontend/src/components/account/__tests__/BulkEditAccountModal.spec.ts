@@ -169,6 +169,60 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI OAuth 批量编辑可设置邮箱提供商', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-email-provider-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-email-provider select').setValue('freemail')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        openai_email_provider: 'freemail'
+      }
+    })
+  })
+
+  it('OpenAI OAuth 批量编辑可设置手机号提供商', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-phone-provider-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-phone-provider select').setValue('hero-sms')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        openai_phone_provider: 'hero-sms'
+      }
+    })
+  })
+
+  it('OpenAI OAuth 批量编辑可设置登录密码', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-password-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-password input[type="password"]').setValue('secret-123')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        password: 'secret-123'
+      }
+    })
+  })
+
   it('OpenAI API Key 批量编辑不显示 WS mode 入口', () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

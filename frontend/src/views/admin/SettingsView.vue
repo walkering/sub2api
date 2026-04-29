@@ -2467,6 +2467,238 @@
                     {{ t("admin.settings.defaults.defaultUserRpmLimitHint") }}
                   </p>
                 </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthDefaultPassword") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_default_password"
+                    type="password"
+                    class="input"
+                    autocomplete="new-password"
+                    name="openai-oauth-default-password"
+                    :placeholder="
+                      form.openai_oauth_default_password_configured
+                        ? t('admin.settings.defaults.openaiOAuthDefaultPasswordConfiguredPlaceholder')
+                        : t('admin.settings.defaults.openaiOAuthDefaultPasswordPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.openai_oauth_default_password_configured
+                        ? t('admin.settings.defaults.openaiOAuthDefaultPasswordConfiguredHint')
+                        : t('admin.settings.defaults.openaiOAuthDefaultPasswordHint')
+                    }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailBaseUrl") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_freemail_base_url"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthFreemailBaseUrlPlaceholder')"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailBaseUrlHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailUsername") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_freemail_username"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthFreemailUsernamePlaceholder')"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailPassword") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_freemail_password"
+                    type="password"
+                    class="input"
+                    autocomplete="new-password"
+                    name="openai-oauth-freemail-password"
+                    :placeholder="
+                      form.openai_oauth_freemail_password_configured
+                        ? t('admin.settings.defaults.openaiOAuthFreemailPasswordConfiguredPlaceholder')
+                        : t('admin.settings.defaults.openaiOAuthFreemailPasswordPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.openai_oauth_freemail_password_configured
+                        ? t('admin.settings.defaults.openaiOAuthFreemailPasswordConfiguredHint')
+                        : t('admin.settings.defaults.openaiOAuthFreemailPasswordHint')
+                    }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailDomain") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_freemail_domain"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthFreemailDomainPlaceholder')"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.openaiOAuthFreemailDomainHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneBaseUrl") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_phone_base_url"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthPhoneBaseUrlPlaceholder')"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneBaseUrlHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneApiKey") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_phone_api_key"
+                    type="password"
+                    class="input"
+                    autocomplete="new-password"
+                    :placeholder="
+                      form.openai_oauth_phone_api_key_configured
+                        ? t('admin.settings.defaults.openaiOAuthPhoneApiKeyConfiguredPlaceholder')
+                        : t('admin.settings.defaults.openaiOAuthPhoneApiKeyPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.openai_oauth_phone_api_key_configured
+                        ? t('admin.settings.defaults.openaiOAuthPhoneApiKeyConfiguredHint')
+                        : t('admin.settings.defaults.openaiOAuthPhoneApiKeyHint')
+                    }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneServiceCode") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_phone_service_code"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthPhoneServiceCodePlaceholder')"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneCountry") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_phone_country"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthPhoneCountryPlaceholder')"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneOperator") }}
+                  </label>
+                  <input
+                    v-model="form.openai_oauth_phone_operator"
+                    type="text"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthPhoneOperatorPlaceholder')"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneMaxPrice") }}
+                  </label>
+                  <input
+                    v-model.number="form.openai_oauth_phone_max_price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    class="input"
+                    :placeholder="t('admin.settings.defaults.openaiOAuthPhoneMaxPricePlaceholder')"
+                  />
+                </div>
+                <div class="md:col-span-2">
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneAdvanced") }}
+                  </label>
+                  <div class="grid gap-3 md:grid-cols-4">
+                    <label class="flex items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm text-gray-700 dark:border-dark-600 dark:text-gray-300">
+                      <input
+                        v-model="form.openai_oauth_phone_fixed_price"
+                        type="checkbox"
+                        class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span>{{ t("admin.settings.defaults.openaiOAuthPhoneFixedPrice") }}</span>
+                    </label>
+                    <input
+                      v-model.number="form.openai_oauth_phone_lease_minutes"
+                      type="number"
+                      min="1"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthPhoneLeaseMinutesPlaceholder')"
+                    />
+                    <input
+                      v-model.number="form.openai_oauth_phone_poll_interval_ms"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthPhonePollIntervalMsPlaceholder')"
+                    />
+                    <input
+                      v-model.number="form.openai_oauth_phone_resend_after_seconds"
+                      type="number"
+                      min="0"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthPhoneResendAfterSecondsPlaceholder')"
+                    />
+                  </div>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.openaiOAuthPhoneAdvancedHint") }}
+                  </p>
+                </div>
               </div>
 
               <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
@@ -5646,6 +5878,16 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
 > & {
+  openai_oauth_default_password: string;
+  openai_oauth_freemail_base_url: string;
+  openai_oauth_freemail_username: string;
+  openai_oauth_freemail_password: string;
+  openai_oauth_freemail_domain: string;
+  openai_oauth_phone_base_url: string;
+  openai_oauth_phone_api_key: string;
+  openai_oauth_phone_service_code: string;
+  openai_oauth_phone_country: string;
+  openai_oauth_phone_operator: string;
   smtp_password: string;
   turnstile_secret_key: string;
   linuxdo_connect_client_secret: string;
@@ -5668,6 +5910,24 @@ const form = reactive<SettingsForm>({
   promo_code_enabled: true,
   invitation_code_enabled: false,
   password_reset_enabled: false,
+  openai_oauth_default_password: "",
+  openai_oauth_default_password_configured: false,
+  openai_oauth_freemail_base_url: "https://freemail.walker-feng.workers.dev",
+  openai_oauth_freemail_username: "",
+  openai_oauth_freemail_password: "",
+  openai_oauth_freemail_password_configured: false,
+  openai_oauth_freemail_domain: "",
+  openai_oauth_phone_base_url: "https://hero-sms.com/stubs/handler_api.php",
+  openai_oauth_phone_api_key: "",
+  openai_oauth_phone_api_key_configured: false,
+  openai_oauth_phone_service_code: "",
+  openai_oauth_phone_country: "",
+  openai_oauth_phone_operator: "",
+  openai_oauth_phone_max_price: 0,
+  openai_oauth_phone_fixed_price: false,
+  openai_oauth_phone_lease_minutes: 20,
+  openai_oauth_phone_poll_interval_ms: 5000,
+  openai_oauth_phone_resend_after_seconds: 30,
   totp_enabled: false,
   totp_encryption_key_configured: false,
   default_balance: 0,
@@ -6344,6 +6604,9 @@ async function loadSettings() {
         : DEFAULT_TABLE_PAGE_SIZE_OPTIONS,
     );
     registrationEmailSuffixWhitelistDraft.value = "";
+    form.openai_oauth_default_password = "";
+    form.openai_oauth_freemail_password = "";
+    form.openai_oauth_phone_api_key = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
     form.turnstile_secret_key = "";
@@ -6614,6 +6877,23 @@ async function saveSettings() {
       promo_code_enabled: form.promo_code_enabled,
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
+      openai_oauth_default_password:
+        form.openai_oauth_default_password || undefined,
+      openai_oauth_freemail_base_url: form.openai_oauth_freemail_base_url,
+      openai_oauth_freemail_username: form.openai_oauth_freemail_username,
+      openai_oauth_freemail_password:
+        form.openai_oauth_freemail_password || undefined,
+      openai_oauth_freemail_domain: form.openai_oauth_freemail_domain,
+      openai_oauth_phone_base_url: form.openai_oauth_phone_base_url,
+      openai_oauth_phone_api_key: form.openai_oauth_phone_api_key || undefined,
+      openai_oauth_phone_service_code: form.openai_oauth_phone_service_code,
+      openai_oauth_phone_country: form.openai_oauth_phone_country,
+      openai_oauth_phone_operator: form.openai_oauth_phone_operator,
+      openai_oauth_phone_max_price: Math.max(0, Number(form.openai_oauth_phone_max_price) || 0),
+      openai_oauth_phone_fixed_price: form.openai_oauth_phone_fixed_price,
+      openai_oauth_phone_lease_minutes: Math.max(1, Math.floor(Number(form.openai_oauth_phone_lease_minutes) || 20)),
+      openai_oauth_phone_poll_interval_ms: Math.max(1000, Math.floor(Number(form.openai_oauth_phone_poll_interval_ms) || 5000)),
+      openai_oauth_phone_resend_after_seconds: Math.max(0, Math.floor(Number(form.openai_oauth_phone_resend_after_seconds) || 30)),
       totp_enabled: form.totp_enabled,
       default_balance: form.default_balance,
       affiliate_rebate_rate: Math.min(
@@ -6814,6 +7094,9 @@ async function saveSettings() {
         : DEFAULT_TABLE_PAGE_SIZE_OPTIONS,
     );
     registrationEmailSuffixWhitelistDraft.value = "";
+    form.openai_oauth_default_password = "";
+    form.openai_oauth_freemail_password = "";
+    form.openai_oauth_phone_api_key = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
     form.turnstile_secret_key = "";

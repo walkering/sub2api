@@ -2054,6 +2054,9 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	normalizeOpenAIOAuthAssociationExtra(input)
+	s.applyOpenAIOAuthDefaultPassword(ctx, input)
+
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -2155,6 +2158,66 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	return account, nil
+}
+
+func normalizeOpenAIOAuthAssociationExtra(input *CreateAccountInput) {
+	if input == nil || input.Platform != PlatformOpenAI || input.Type != AccountTypeOAuth || input.Extra == nil {
+		return
+	}
+
+	if rawPassword, ok := input.Extra["password"].(string); ok {
+		trimmedPassword := strings.TrimSpace(rawPassword)
+		if trimmedPassword == "" {
+			delete(input.Extra, "password")
+		} else {
+			input.Extra["password"] = trimmedPassword
+		}
+	}
+
+	if rawProvider, ok := input.Extra["openai_email_provider"].(string); ok {
+		normalizedProvider := strings.ToLower(strings.TrimSpace(rawProvider))
+		if normalizedProvider == "freemail" {
+			input.Extra["openai_email_provider"] = normalizedProvider
+		} else {
+			delete(input.Extra, "openai_email_provider")
+		}
+	}
+
+	if rawProvider, ok := input.Extra["openai_phone_provider"].(string); ok {
+		normalizedProvider := strings.ToLower(strings.TrimSpace(rawProvider))
+		if normalizedProvider == "hero-sms" {
+			input.Extra["openai_phone_provider"] = normalizedProvider
+		} else {
+			delete(input.Extra, "openai_phone_provider")
+		}
+	}
+
+	if len(input.Extra) == 0 {
+		input.Extra = nil
+	}
+}
+
+func (s *adminServiceImpl) applyOpenAIOAuthDefaultPassword(ctx context.Context, input *CreateAccountInput) {
+	if input == nil || s.settingService == nil {
+		return
+	}
+	if input.Platform != PlatformOpenAI || input.Type != AccountTypeOAuth {
+		return
+	}
+	if input.Extra != nil {
+		if existing, ok := input.Extra["password"].(string); ok && strings.TrimSpace(existing) != "" {
+			return
+		}
+	}
+
+	defaultPassword := s.settingService.GetOpenAIOAuthDefaultPassword(ctx)
+	if defaultPassword == "" {
+		return
+	}
+	if input.Extra == nil {
+		input.Extra = make(map[string]any)
+	}
+	input.Extra["password"] = defaultPassword
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {

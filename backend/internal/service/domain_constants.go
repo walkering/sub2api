@@ -98,6 +98,21 @@ const (
 	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
 	SettingKeyPromoCodeEnabled                 = "promo_code_enabled"                  // 是否启用优惠码功能
 	SettingKeyPasswordResetEnabled             = "password_reset_enabled"              // 是否启用忘记密码功能（需要先开启邮件验证）
+	SettingKeyOpenAIOAuthDefaultPassword       = "openai_oauth_default_password"       // 新建 OpenAI OAuth 账号默认保存密码
+	SettingKeyOpenAIOAuthFreemailBaseURL       = "openai_oauth_freemail_base_url"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 服务地址
+	SettingKeyOpenAIOAuthFreemailUsername      = "openai_oauth_freemail_username"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录账号
+	SettingKeyOpenAIOAuthFreemailPassword      = "openai_oauth_freemail_password"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录密码
+	SettingKeyOpenAIOAuthFreemailDomain        = "openai_oauth_freemail_domain"        // OpenAI OAuth 邮箱 OTP 的 FreeMail 默认域名
+	SettingKeyOpenAIOAuthPhoneBaseURL          = "openai_oauth_phone_base_url"         // OpenAI OAuth 手机 OTP 的 HeroSMS 接口地址
+	SettingKeyOpenAIOAuthPhoneAPIKey           = "openai_oauth_phone_api_key"          // OpenAI OAuth 手机 OTP 的 HeroSMS API Key
+	SettingKeyOpenAIOAuthPhoneServiceCode      = "openai_oauth_phone_service_code"     // OpenAI OAuth 手机 OTP 的 HeroSMS service
+	SettingKeyOpenAIOAuthPhoneCountry          = "openai_oauth_phone_country"          // OpenAI OAuth 手机 OTP 的 HeroSMS country
+	SettingKeyOpenAIOAuthPhoneOperator         = "openai_oauth_phone_operator"         // OpenAI OAuth 手机 OTP 的 HeroSMS operator
+	SettingKeyOpenAIOAuthPhoneMaxPrice         = "openai_oauth_phone_max_price"        // OpenAI OAuth 手机 OTP 的 HeroSMS maxPrice
+	SettingKeyOpenAIOAuthPhoneFixedPrice       = "openai_oauth_phone_fixed_price"      // OpenAI OAuth 手机 OTP 是否固定价格购买
+	SettingKeyOpenAIOAuthPhoneLeaseMinutes     = "openai_oauth_phone_lease_minutes"    // OpenAI OAuth 手机 OTP 的租约分钟数
+	SettingKeyOpenAIOAuthPhonePollIntervalMS   = "openai_oauth_phone_poll_interval_ms" // OpenAI OAuth 手机 OTP 的轮询间隔（毫秒）
+	SettingKeyOpenAIOAuthPhoneResendAfterSecs  = "openai_oauth_phone_resend_after_seconds" // OpenAI OAuth 手机 OTP 的重发等待秒数
 	SettingKeyFrontendURL                      = "frontend_url"                        // 前端基础URL，用于生成邮件中的重置密码链接
 	SettingKeyInvitationCodeEnabled            = "invitation_code_enabled"             // 是否启用邀请码注册
 	SettingKeyAffiliateEnabled                 = "affiliate_enabled"                   // 邀请返利功能总开关
@@ -327,6 +342,9 @@ const (
 
 	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
+
+	// SettingKeyAccountFairRotationEnabled 是否启用账号公平轮转（默认 false）
+	SettingKeyAccountFairRotationEnabled = "account_fair_rotation_enabled"
 
 	// Gateway Forwarding Behavior
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）

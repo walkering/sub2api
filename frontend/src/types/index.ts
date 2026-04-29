@@ -485,6 +485,7 @@ export interface Group {
   description: string | null
   platform: GroupPlatform
   rate_multiplier: number
+  account_usage_threshold_percent?: number | null
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   is_exclusive: boolean
   status: 'active' | 'inactive'
@@ -562,6 +563,7 @@ export interface ApiKey {
   reset_5h_at: string | null
   reset_1d_at: string | null
   reset_7d_at: string | null
+  current_concurrency?: number
 }
 
 export interface CreateApiKeyRequest {
@@ -962,6 +964,9 @@ export interface CreateAccountRequest {
   type: AccountType
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
+  openai_email_provider?: string
+  openai_phone_provider?: string
+  openai_saved_password?: string
   proxy_id?: number | null
   concurrency?: number
   load_factor?: number | null

@@ -2613,6 +2613,30 @@
         @validate-session-token="handleValidateSessionToken"
       />
 
+      <div
+        v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
+        class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+      >
+        <label class="input-label">{{ t('admin.accounts.openaiEmailProvider') }}</label>
+        <Select v-model="openAIOAuthEmailProvider" :options="openAIEmailProviderOptions" />
+        <p class="input-hint">{{ t('admin.accounts.openaiEmailProviderHint') }}</p>
+
+        <label class="input-label mt-4">{{ t('admin.accounts.openaiPhoneProvider') }}</label>
+        <Select v-model="openAIOAuthPhoneProvider" :options="openAIPhoneProviderOptions" />
+        <p class="input-hint">{{ t('admin.accounts.openaiPhoneProviderHint') }}</p>
+
+        <label class="input-label mt-4">{{ t('admin.accounts.openaiStoredPassword') }}</label>
+        <input
+          v-model="openAIOAuthSavedPassword"
+          type="password"
+          class="input"
+          autocomplete="new-password"
+          name="openai-oauth-saved-password"
+          :placeholder="t('admin.accounts.openaiStoredPasswordPlaceholder')"
+        />
+        <p class="input-hint">{{ t('admin.accounts.openaiStoredPasswordHint') }}</p>
+      </div>
+
     </div>
 
     <template #footer>
@@ -3115,6 +3139,9 @@ const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openAIOAuthSavedPassword = ref('')
+const openAIOAuthEmailProvider = ref<'none' | 'freemail'>('none')
+const openAIOAuthPhoneProvider = ref<'none' | 'hero-sms'>('none')
 const codexCLIOnlyEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
@@ -3163,6 +3190,14 @@ const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
+])
+const openAIEmailProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiEmailProviderNone') },
+  { value: 'freemail', label: t('admin.accounts.openaiEmailProviderFreemail') }
+])
+const openAIPhoneProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiPhoneProviderNone') },
+  { value: 'hero-sms', label: t('admin.accounts.openaiPhoneProviderHeroSMS') }
 ])
 
 function buildAntigravityExtra(): Record<string, unknown> | undefined {
@@ -3757,6 +3792,30 @@ const withAntigravityConfirmFlag = (payload: CreateAccountRequest): CreateAccoun
   return cloned
 }
 
+const withOpenAIOAuthAssociation = (payload: CreateAccountRequest): CreateAccountRequest => {
+  const cloned = { ...payload }
+  delete cloned.openai_email_provider
+  delete cloned.openai_saved_password
+
+  if (cloned.platform !== 'openai' || cloned.type !== 'oauth') {
+    return cloned
+  }
+
+  const savedPassword = openAIOAuthSavedPassword.value.trim()
+  if (savedPassword) {
+    cloned.openai_saved_password = savedPassword
+  }
+
+  if (openAIOAuthEmailProvider.value === 'freemail') {
+    cloned.openai_email_provider = 'freemail'
+  }
+  if (openAIOAuthPhoneProvider.value === 'hero-sms') {
+    cloned.openai_phone_provider = 'hero-sms'
+  }
+
+  return cloned
+}
+
 const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<void>): Promise<boolean> => {
   if (!needsMixedChannelCheck(form.platform)) {
     return true
@@ -3790,7 +3849,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    await adminAPI.accounts.create(withAntigravityConfirmFlag(withOpenAIOAuthAssociation(payload)))
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -3860,6 +3919,9 @@ const resetForm = () => {
   openAICompactMode.value = 'auto'
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  openAIOAuthSavedPassword.value = ''
+  openAIOAuthEmailProvider.value = 'none'
+  openAIOAuthPhoneProvider.value = 'none'
   codexCLIOnlyEnabled.value = false
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
@@ -3916,6 +3978,22 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
+    const savedPassword = openAIOAuthSavedPassword.value.trim()
+    if (savedPassword) {
+      extra.password = savedPassword
+    } else {
+      delete extra.password
+    }
+    if (openAIOAuthEmailProvider.value === 'freemail') {
+      extra.openai_email_provider = 'freemail'
+    } else {
+      delete extra.openai_email_provider
+    }
+    if (openAIOAuthPhoneProvider.value === 'hero-sms') {
+      extra.openai_phone_provider = 'hero-sms'
+    } else {
+      delete extra.openai_phone_provider
+    }
   } else if (accountCategory.value === 'apikey') {
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
@@ -4345,7 +4423,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await adminAPI.accounts.create(withOpenAIOAuthAssociation({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -4360,7 +4438,7 @@ const handleOpenAIExchange = async (authCode: string) => {
         group_ids: form.group_ids,
         expires_at: form.expires_at,
         auto_pause_on_expired: autoPauseOnExpired.value
-      })
+      }))
       appStore.showSuccess(t('admin.accounts.accountCreated'))
     }
 
@@ -4442,7 +4520,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await adminAPI.accounts.create(withOpenAIOAuthAssociation({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -4457,7 +4535,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             group_ids: form.group_ids,
             expires_at: form.expires_at,
             auto_pause_on_expired: autoPauseOnExpired.value
-          })
+          }))
         }
 
         successCount++
@@ -4881,7 +4959,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await adminAPI.accounts.create(withOpenAIOAuthAssociation({
           name: accountName,
           notes: form.notes,
           platform: form.platform,
@@ -4896,7 +4974,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           group_ids: form.group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
-        })
+        }))
 
         successCount++
       } catch (error: any) {

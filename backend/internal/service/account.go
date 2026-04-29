@@ -2133,6 +2133,72 @@ func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) Windo
 	return WindowCostNotSchedulable
 }
 
+// GetMaxQuotaUsageRatio returns the max usage ratio across total/daily/weekly quota dimensions.
+// The boolean result is false when no quota limit is configured on any dimension.
+func (a *Account) GetMaxQuotaUsageRatio() (float64, bool) {
+	if a == nil {
+		return 0, false
+	}
+
+	maxRatio := 0.0
+	found := false
+
+	if limit := a.GetQuotaLimit(); limit > 0 {
+		found = true
+		ratio := a.GetQuotaUsed() / limit
+		if ratio > maxRatio {
+			maxRatio = ratio
+		}
+	}
+
+	if limit := a.GetQuotaDailyLimit(); limit > 0 {
+		found = true
+		used := 0.0
+		if !a.IsDailyQuotaPeriodExpired() {
+			used = a.GetQuotaDailyUsed()
+		}
+		ratio := used / limit
+		if ratio > maxRatio {
+			maxRatio = ratio
+		}
+	}
+
+	if limit := a.GetQuotaWeeklyLimit(); limit > 0 {
+		found = true
+		used := 0.0
+		if !a.IsWeeklyQuotaPeriodExpired() {
+			used = a.GetQuotaWeeklyUsed()
+		}
+		ratio := used / limit
+		if ratio > maxRatio {
+			maxRatio = ratio
+		}
+	}
+
+	return maxRatio, found
+}
+
+// CheckQuotaUsageThresholdSchedulability restricts scheduling when quota usage reaches a group threshold.
+func (a *Account) CheckQuotaUsageThresholdSchedulability(thresholdPercent float64, activeSessions int) WindowCostSchedulability {
+	if thresholdPercent <= 0 {
+		return WindowCostSchedulable
+	}
+
+	maxRatio, ok := a.GetMaxQuotaUsageRatio()
+	if !ok {
+		return WindowCostSchedulable
+	}
+
+	if maxRatio < thresholdPercent/100 {
+		return WindowCostSchedulable
+	}
+
+	if activeSessions > 0 {
+		return WindowCostStickyOnly
+	}
+	return WindowCostNotSchedulable
+}
+
 // GetCurrentWindowStartTime 获取当前有效的窗口开始时间
 // 逻辑：
 // 1. 如果窗口未过期（SessionWindowEnd 存在且在当前时间之后），使用记录的 SessionWindowStart

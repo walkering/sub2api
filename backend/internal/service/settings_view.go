@@ -12,14 +12,32 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	RegistrationEnabled              bool
-	EmailVerifyEnabled               bool
-	RegistrationEmailSuffixWhitelist []string
-	PromoCodeEnabled                 bool
-	PasswordResetEnabled             bool
-	FrontendURL                      string
-	InvitationCodeEnabled            bool
-	TotpEnabled                      bool // TOTP 双因素认证
+	RegistrationEnabled                   bool
+	EmailVerifyEnabled                    bool
+	RegistrationEmailSuffixWhitelist      []string
+	PromoCodeEnabled                      bool
+	PasswordResetEnabled                  bool
+	OpenAIOAuthDefaultPassword            string
+	OpenAIOAuthDefaultPasswordConfigured  bool
+	OpenAIOAuthFreemailBaseURL            string
+	OpenAIOAuthFreemailUsername           string
+	OpenAIOAuthFreemailPassword           string
+	OpenAIOAuthFreemailPasswordConfigured bool
+	OpenAIOAuthFreemailDomain             string
+	OpenAIOAuthPhoneBaseURL               string
+	OpenAIOAuthPhoneAPIKey                string
+	OpenAIOAuthPhoneAPIKeyConfigured      bool
+	OpenAIOAuthPhoneServiceCode           string
+	OpenAIOAuthPhoneCountry               string
+	OpenAIOAuthPhoneOperator              string
+	OpenAIOAuthPhoneMaxPrice              float64
+	OpenAIOAuthPhoneFixedPrice            bool
+	OpenAIOAuthPhoneLeaseMinutes          int
+	OpenAIOAuthPhonePollIntervalMS        int
+	OpenAIOAuthPhoneResendAfterSeconds    int
+	FrontendURL                           string
+	InvitationCodeEnabled                 bool
+	TotpEnabled                           bool // TOTP 双因素认证
 
 	SMTPHost               string
 	SMTPPort               int

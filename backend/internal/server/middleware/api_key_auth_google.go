@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -57,6 +59,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 		// 简易模式：跳过余额和订阅检查
 		if cfg.RunMode == config.RunModeSimple {
+			ctx := context.WithValue(c.Request.Context(), ctxkey.APIKeyID, apiKey.ID)
+			c.Request = c.Request.WithContext(ctx)
 			c.Set(string(ContextKeyAPIKey), apiKey)
 			c.Set(string(ContextKeyUser), AuthSubject{
 				UserID:      apiKey.User.ID,
@@ -106,6 +110,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			}
 		}
 
+		ctx := context.WithValue(c.Request.Context(), ctxkey.APIKeyID, apiKey.ID)
+		c.Request = c.Request.WithContext(ctx)
 		c.Set(string(ContextKeyAPIKey), apiKey)
 		c.Set(string(ContextKeyUser), AuthSubject{
 			UserID:      apiKey.User.ID,

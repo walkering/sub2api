@@ -113,6 +113,21 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:       settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
+		OpenAIOAuthDefaultPasswordConfigured:   settings.OpenAIOAuthDefaultPasswordConfigured,
+		OpenAIOAuthFreemailBaseURL:             settings.OpenAIOAuthFreemailBaseURL,
+		OpenAIOAuthFreemailUsername:            settings.OpenAIOAuthFreemailUsername,
+		OpenAIOAuthFreemailPasswordConfigured:  settings.OpenAIOAuthFreemailPasswordConfigured,
+		OpenAIOAuthFreemailDomain:              settings.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthPhoneBaseURL:                settings.OpenAIOAuthPhoneBaseURL,
+		OpenAIOAuthPhoneAPIKeyConfigured:       settings.OpenAIOAuthPhoneAPIKeyConfigured,
+		OpenAIOAuthPhoneServiceCode:            settings.OpenAIOAuthPhoneServiceCode,
+		OpenAIOAuthPhoneCountry:                settings.OpenAIOAuthPhoneCountry,
+		OpenAIOAuthPhoneOperator:               settings.OpenAIOAuthPhoneOperator,
+		OpenAIOAuthPhoneMaxPrice:               settings.OpenAIOAuthPhoneMaxPrice,
+		OpenAIOAuthPhoneFixedPrice:             settings.OpenAIOAuthPhoneFixedPrice,
+		OpenAIOAuthPhoneLeaseMinutes:           settings.OpenAIOAuthPhoneLeaseMinutes,
+		OpenAIOAuthPhonePollIntervalMS:         settings.OpenAIOAuthPhonePollIntervalMS,
+		OpenAIOAuthPhoneResendAfterSeconds:     settings.OpenAIOAuthPhoneResendAfterSeconds,
 		FrontendURL:                            settings.FrontendURL,
 		InvitationCodeEnabled:                  settings.InvitationCodeEnabled,
 		TotpEnabled:                            settings.TotpEnabled,
@@ -301,6 +316,21 @@ type UpdateSettingsRequest struct {
 	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                 bool     `json:"promo_code_enabled"`
 	PasswordResetEnabled             bool     `json:"password_reset_enabled"`
+	OpenAIOAuthDefaultPassword       string   `json:"openai_oauth_default_password"`
+	OpenAIOAuthFreemailBaseURL       string   `json:"openai_oauth_freemail_base_url"`
+	OpenAIOAuthFreemailUsername      string   `json:"openai_oauth_freemail_username"`
+	OpenAIOAuthFreemailPassword      string   `json:"openai_oauth_freemail_password"`
+	OpenAIOAuthFreemailDomain        string   `json:"openai_oauth_freemail_domain"`
+	OpenAIOAuthPhoneBaseURL          string   `json:"openai_oauth_phone_base_url"`
+	OpenAIOAuthPhoneAPIKey           string   `json:"openai_oauth_phone_api_key"`
+	OpenAIOAuthPhoneServiceCode      string   `json:"openai_oauth_phone_service_code"`
+	OpenAIOAuthPhoneCountry          string   `json:"openai_oauth_phone_country"`
+	OpenAIOAuthPhoneOperator         string   `json:"openai_oauth_phone_operator"`
+	OpenAIOAuthPhoneMaxPrice         float64  `json:"openai_oauth_phone_max_price"`
+	OpenAIOAuthPhoneFixedPrice       bool     `json:"openai_oauth_phone_fixed_price"`
+	OpenAIOAuthPhoneLeaseMinutes     int      `json:"openai_oauth_phone_lease_minutes"`
+	OpenAIOAuthPhonePollIntervalMS   int      `json:"openai_oauth_phone_poll_interval_ms"`
+	OpenAIOAuthPhoneResendAfterSecs  int      `json:"openai_oauth_phone_resend_after_seconds"`
 	FrontendURL                      string   `json:"frontend_url"`
 	InvitationCodeEnabled            bool     `json:"invitation_code_enabled"`
 	TotpEnabled                      bool     `json:"totp_enabled"` // TOTP 双因素认证
@@ -1143,6 +1173,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
 		PasswordResetEnabled:             req.PasswordResetEnabled,
+		OpenAIOAuthDefaultPassword:       req.OpenAIOAuthDefaultPassword,
+		OpenAIOAuthFreemailBaseURL:       req.OpenAIOAuthFreemailBaseURL,
+		OpenAIOAuthFreemailUsername:      req.OpenAIOAuthFreemailUsername,
+		OpenAIOAuthFreemailPassword:      req.OpenAIOAuthFreemailPassword,
+		OpenAIOAuthFreemailDomain:        req.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthPhoneBaseURL:          req.OpenAIOAuthPhoneBaseURL,
+		OpenAIOAuthPhoneAPIKey:           req.OpenAIOAuthPhoneAPIKey,
+		OpenAIOAuthPhoneServiceCode:      req.OpenAIOAuthPhoneServiceCode,
+		OpenAIOAuthPhoneCountry:          req.OpenAIOAuthPhoneCountry,
+		OpenAIOAuthPhoneOperator:         req.OpenAIOAuthPhoneOperator,
+		OpenAIOAuthPhoneMaxPrice:         req.OpenAIOAuthPhoneMaxPrice,
+		OpenAIOAuthPhoneFixedPrice:       req.OpenAIOAuthPhoneFixedPrice,
+		OpenAIOAuthPhoneLeaseMinutes:     req.OpenAIOAuthPhoneLeaseMinutes,
+		OpenAIOAuthPhonePollIntervalMS:   req.OpenAIOAuthPhonePollIntervalMS,
+		OpenAIOAuthPhoneResendAfterSeconds: req.OpenAIOAuthPhoneResendAfterSecs,
 		FrontendURL:                      req.FrontendURL,
 		InvitationCodeEnabled:            req.InvitationCodeEnabled,
 		TotpEnabled:                      req.TotpEnabled,
@@ -1474,6 +1519,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:       updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
+		OpenAIOAuthDefaultPasswordConfigured:   updatedSettings.OpenAIOAuthDefaultPasswordConfigured,
+		OpenAIOAuthFreemailBaseURL:             updatedSettings.OpenAIOAuthFreemailBaseURL,
+		OpenAIOAuthFreemailUsername:            updatedSettings.OpenAIOAuthFreemailUsername,
+		OpenAIOAuthFreemailPasswordConfigured:  updatedSettings.OpenAIOAuthFreemailPasswordConfigured,
+		OpenAIOAuthFreemailDomain:              updatedSettings.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthPhoneBaseURL:                updatedSettings.OpenAIOAuthPhoneBaseURL,
+		OpenAIOAuthPhoneAPIKeyConfigured:       updatedSettings.OpenAIOAuthPhoneAPIKeyConfigured,
+		OpenAIOAuthPhoneServiceCode:            updatedSettings.OpenAIOAuthPhoneServiceCode,
+		OpenAIOAuthPhoneCountry:                updatedSettings.OpenAIOAuthPhoneCountry,
+		OpenAIOAuthPhoneOperator:               updatedSettings.OpenAIOAuthPhoneOperator,
+		OpenAIOAuthPhoneMaxPrice:               updatedSettings.OpenAIOAuthPhoneMaxPrice,
+		OpenAIOAuthPhoneFixedPrice:             updatedSettings.OpenAIOAuthPhoneFixedPrice,
+		OpenAIOAuthPhoneLeaseMinutes:           updatedSettings.OpenAIOAuthPhoneLeaseMinutes,
+		OpenAIOAuthPhonePollIntervalMS:         updatedSettings.OpenAIOAuthPhonePollIntervalMS,
+		OpenAIOAuthPhoneResendAfterSeconds:     updatedSettings.OpenAIOAuthPhoneResendAfterSeconds,
 		FrontendURL:                            updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                  updatedSettings.InvitationCodeEnabled,
 		TotpEnabled:                            updatedSettings.TotpEnabled,
@@ -1669,6 +1729,51 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.PasswordResetEnabled != after.PasswordResetEnabled {
 		changed = append(changed, "password_reset_enabled")
+	}
+	if strings.TrimSpace(req.OpenAIOAuthDefaultPassword) != "" {
+		changed = append(changed, "openai_oauth_default_password")
+	}
+	if before.OpenAIOAuthFreemailBaseURL != after.OpenAIOAuthFreemailBaseURL {
+		changed = append(changed, "openai_oauth_freemail_base_url")
+	}
+	if before.OpenAIOAuthFreemailUsername != after.OpenAIOAuthFreemailUsername {
+		changed = append(changed, "openai_oauth_freemail_username")
+	}
+	if strings.TrimSpace(req.OpenAIOAuthFreemailPassword) != "" {
+		changed = append(changed, "openai_oauth_freemail_password")
+	}
+	if before.OpenAIOAuthFreemailDomain != after.OpenAIOAuthFreemailDomain {
+		changed = append(changed, "openai_oauth_freemail_domain")
+	}
+	if before.OpenAIOAuthPhoneBaseURL != after.OpenAIOAuthPhoneBaseURL {
+		changed = append(changed, "openai_oauth_phone_base_url")
+	}
+	if strings.TrimSpace(req.OpenAIOAuthPhoneAPIKey) != "" {
+		changed = append(changed, "openai_oauth_phone_api_key")
+	}
+	if before.OpenAIOAuthPhoneServiceCode != after.OpenAIOAuthPhoneServiceCode {
+		changed = append(changed, "openai_oauth_phone_service_code")
+	}
+	if before.OpenAIOAuthPhoneCountry != after.OpenAIOAuthPhoneCountry {
+		changed = append(changed, "openai_oauth_phone_country")
+	}
+	if before.OpenAIOAuthPhoneOperator != after.OpenAIOAuthPhoneOperator {
+		changed = append(changed, "openai_oauth_phone_operator")
+	}
+	if before.OpenAIOAuthPhoneMaxPrice != after.OpenAIOAuthPhoneMaxPrice {
+		changed = append(changed, "openai_oauth_phone_max_price")
+	}
+	if before.OpenAIOAuthPhoneFixedPrice != after.OpenAIOAuthPhoneFixedPrice {
+		changed = append(changed, "openai_oauth_phone_fixed_price")
+	}
+	if before.OpenAIOAuthPhoneLeaseMinutes != after.OpenAIOAuthPhoneLeaseMinutes {
+		changed = append(changed, "openai_oauth_phone_lease_minutes")
+	}
+	if before.OpenAIOAuthPhonePollIntervalMS != after.OpenAIOAuthPhonePollIntervalMS {
+		changed = append(changed, "openai_oauth_phone_poll_interval_ms")
+	}
+	if before.OpenAIOAuthPhoneResendAfterSeconds != after.OpenAIOAuthPhoneResendAfterSeconds {
+		changed = append(changed, "openai_oauth_phone_resend_after_seconds")
 	}
 	if before.FrontendURL != after.FrontendURL {
 		changed = append(changed, "frontend_url")

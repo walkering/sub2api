@@ -24,15 +24,30 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	RegistrationEnabled              bool     `json:"registration_enabled"`
-	EmailVerifyEnabled               bool     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
-	PromoCodeEnabled                 bool     `json:"promo_code_enabled"`
-	PasswordResetEnabled             bool     `json:"password_reset_enabled"`
-	FrontendURL                      string   `json:"frontend_url"`
-	InvitationCodeEnabled            bool     `json:"invitation_code_enabled"`
-	TotpEnabled                      bool     `json:"totp_enabled"`                   // TOTP 双因素认证
-	TotpEncryptionKeyConfigured      bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
+	RegistrationEnabled                   bool     `json:"registration_enabled"`
+	EmailVerifyEnabled                    bool     `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist      []string `json:"registration_email_suffix_whitelist"`
+	PromoCodeEnabled                      bool     `json:"promo_code_enabled"`
+	PasswordResetEnabled                  bool     `json:"password_reset_enabled"`
+	OpenAIOAuthDefaultPasswordConfigured  bool     `json:"openai_oauth_default_password_configured"`
+	OpenAIOAuthFreemailBaseURL            string   `json:"openai_oauth_freemail_base_url"`
+	OpenAIOAuthFreemailUsername           string   `json:"openai_oauth_freemail_username"`
+	OpenAIOAuthFreemailPasswordConfigured bool     `json:"openai_oauth_freemail_password_configured"`
+	OpenAIOAuthFreemailDomain             string   `json:"openai_oauth_freemail_domain"`
+	OpenAIOAuthPhoneBaseURL               string   `json:"openai_oauth_phone_base_url"`
+	OpenAIOAuthPhoneAPIKeyConfigured      bool     `json:"openai_oauth_phone_api_key_configured"`
+	OpenAIOAuthPhoneServiceCode           string   `json:"openai_oauth_phone_service_code"`
+	OpenAIOAuthPhoneCountry               string   `json:"openai_oauth_phone_country"`
+	OpenAIOAuthPhoneOperator              string   `json:"openai_oauth_phone_operator"`
+	OpenAIOAuthPhoneMaxPrice              float64  `json:"openai_oauth_phone_max_price"`
+	OpenAIOAuthPhoneFixedPrice            bool     `json:"openai_oauth_phone_fixed_price"`
+	OpenAIOAuthPhoneLeaseMinutes          int      `json:"openai_oauth_phone_lease_minutes"`
+	OpenAIOAuthPhonePollIntervalMS        int      `json:"openai_oauth_phone_poll_interval_ms"`
+	OpenAIOAuthPhoneResendAfterSeconds    int      `json:"openai_oauth_phone_resend_after_seconds"`
+	FrontendURL                           string   `json:"frontend_url"`
+	InvitationCodeEnabled                 bool     `json:"invitation_code_enabled"`
+	TotpEnabled                           bool     `json:"totp_enabled"`                   // TOTP 双因素认证
+	TotpEncryptionKeyConfigured           bool     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
 
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`

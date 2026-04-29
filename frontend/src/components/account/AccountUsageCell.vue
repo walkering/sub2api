@@ -458,11 +458,17 @@ const props = withDefaults(
     account: Account
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
+    prefetchedUsage?: AccountUsageInfo | null
+    prefetchedUsageLoading?: boolean
+    usePrefetchedUsage?: boolean
     manualRefreshToken?: number
   }>(),
   {
     todayStats: null,
     todayStatsLoading: false,
+    prefetchedUsage: undefined,
+    prefetchedUsageLoading: false,
+    usePrefetchedUsage: false,
     manualRefreshToken: 0
   }
 )
@@ -531,11 +537,11 @@ const hasOpenAIUsageFallback = computed(() => {
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
 
 const shouldAutoLoadUsageOnMount = computed(() => {
-  return shouldFetchUsage.value
+  return shouldFetchUsage.value && !props.usePrefetchedUsage
 })
 
 const shouldLazyLoadOnMobile = computed(() => {
-  return shouldFetchUsage.value && !isDesktopViewport.value
+  return shouldFetchUsage.value && !props.usePrefetchedUsage && !isDesktopViewport.value
 })
 
 // Antigravity quota types (用于 API 返回的数据)
@@ -950,6 +956,12 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
 })
 
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
+  if (props.usePrefetchedUsage && options?.source !== 'active') {
+    usageInfo.value = props.prefetchedUsage ?? null
+    loading.value = props.prefetchedUsageLoading
+    error.value = null
+    return
+  }
   if (!shouldFetchUsage.value) return
 
   // Check cache
@@ -1155,6 +1167,17 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
 
   requestAutoLoad()
 })
+
+watch(
+  () => [props.prefetchedUsage, props.prefetchedUsageLoading, props.usePrefetchedUsage] as const,
+  ([nextUsage, nextLoading, usePrefetched]) => {
+    if (!usePrefetched) return
+    usageInfo.value = nextUsage ?? null
+    loading.value = nextLoading
+    error.value = null
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.manualRefreshToken,

@@ -67,6 +67,16 @@ export async function getAllWithCount(): Promise<Proxy[]> {
   return data
 }
 
+export interface ApplyProxyToGroupsRequest {
+  group_ids: number[]
+}
+
+export interface ApplyProxyToGroupsResponse {
+  success: number
+  failed: number
+  target_count: number
+}
+
 /**
  * Get proxy by ID
  * @param id - Proxy ID
@@ -188,6 +198,17 @@ export async function getProxyAccounts(id: number): Promise<ProxyAccountSummary[
   return data
 }
 
+export async function applyToGroups(
+  id: number,
+  payload: ApplyProxyToGroupsRequest
+): Promise<ApplyProxyToGroupsResponse> {
+  const { data } = await apiClient.post<ApplyProxyToGroupsResponse>(
+    `/admin/proxies/${id}/apply-groups`,
+    payload
+  )
+  return data
+}
+
 /**
  * Batch create proxies
  * @param proxies - Array of proxy data to create
@@ -268,6 +289,7 @@ export const proxiesAPI = {
   checkProxyQuality,
   getStats,
   getProxyAccounts,
+  applyToGroups,
   batchCreate,
   batchDelete,
   exportData,

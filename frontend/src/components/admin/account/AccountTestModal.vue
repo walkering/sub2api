@@ -55,12 +55,12 @@
         />
       </div>
 
-      <div v-if="supportsImageTest" class="space-y-1.5">
+      <div class="space-y-1.5">
         <TextArea
           v-model="testPrompt"
-          :label="t('admin.accounts.imagePromptLabel')"
-          :placeholder="t('admin.accounts.imagePromptPlaceholder')"
-          :hint="t('admin.accounts.imageTestHint')"
+          :label="promptLabel"
+          :placeholder="promptPlaceholder"
+          :hint="promptHint"
           :disabled="status === 'connecting'"
           rows="3"
         />
@@ -291,6 +291,10 @@ const supportsOpenAIImageTest = computed(() => {
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
+const promptLabel = computed(() => supportsImageTest.value ? t('admin.accounts.imagePromptLabel') : t('admin.accounts.testPromptLabel'))
+const promptPlaceholder = computed(() => supportsImageTest.value ? t('admin.accounts.imagePromptPlaceholder') : t('admin.accounts.testPromptPlaceholder'))
+const promptHint = computed(() => supportsImageTest.value ? t('admin.accounts.imageTestHint') : t('admin.accounts.testPromptHint'))
+const lastAppliedDefaultPrompt = ref('')
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
@@ -309,6 +313,7 @@ watch(
   async (newVal) => {
     if (newVal && props.account) {
       testPrompt.value = ''
+      lastAppliedDefaultPrompt.value = ''
       resetState()
       await loadAvailableModels()
     } else {
@@ -318,10 +323,21 @@ watch(
 )
 
 watch(selectedModelId, () => {
-  if (supportsImageTest.value && !testPrompt.value.trim()) {
-    testPrompt.value = t('admin.accounts.imagePromptDefault')
-  }
+  syncDefaultPrompt()
 })
+
+const getDefaultPrompt = () => supportsImageTest.value
+  ? t('admin.accounts.imagePromptDefault')
+  : t('admin.accounts.testPromptDefault')
+
+const syncDefaultPrompt = () => {
+  const nextDefault = getDefaultPrompt()
+  const current = testPrompt.value.trim()
+  if (current === '' || current === lastAppliedDefaultPrompt.value) {
+    testPrompt.value = nextDefault
+    lastAppliedDefaultPrompt.value = nextDefault
+  }
+}
 
 const loadAvailableModels = async () => {
   if (!props.account) return
@@ -404,7 +420,7 @@ const startTest = async () => {
       accountId: props.account.id,
       authToken: localStorage.getItem('auth_token'),
       modelId: selectedModelId.value,
-      prompt: supportsImageTest.value ? testPrompt.value.trim() : '',
+      prompt: testPrompt.value.trim(),
       signal: abortController.signal,
       onEvent: handleEvent
     })

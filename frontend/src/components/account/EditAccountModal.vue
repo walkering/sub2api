@@ -26,6 +26,33 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <div
+        v-if="account.platform === 'openai' && account.type === 'oauth'"
+        class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label">{{ t('admin.accounts.openaiEmailProvider') }}</label>
+          <Select v-model="openAIEmailProvider" :options="openAIEmailProviderOptions" />
+          <p class="input-hint">{{ t('admin.accounts.openaiEmailProviderHint') }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.openaiPhoneProvider') }}</label>
+          <Select v-model="openAIPhoneProvider" :options="openAIPhoneProviderOptions" />
+          <p class="input-hint">{{ t('admin.accounts.openaiPhoneProviderHint') }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.openaiStoredPassword') }}</label>
+          <input
+            v-model="editOpenAIOAuthSavedPassword"
+            type="password"
+            class="input"
+            autocomplete="new-password"
+            :placeholder="t('admin.accounts.openaiStoredPasswordPlaceholder')"
+          />
+          <p class="input-hint">{{ t('admin.accounts.openaiStoredPasswordHint') }}</p>
+        </div>
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div>
@@ -2055,6 +2082,9 @@ const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const editOpenAIOAuthSavedPassword = ref('')
+const openAIEmailProvider = ref<'none' | 'freemail'>('none')
+const openAIPhoneProvider = ref<'none' | 'hero-sms'>('none')
 const codexCLIOnlyEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
@@ -2110,6 +2140,14 @@ const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
+])
+const openAIEmailProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiEmailProviderNone') },
+  { value: 'freemail', label: t('admin.accounts.openaiEmailProviderFreemail') }
+])
+const openAIPhoneProviderOptions = computed(() => [
+  { value: 'none', label: t('admin.accounts.openaiPhoneProviderNone') },
+  { value: 'hero-sms', label: t('admin.accounts.openaiPhoneProviderHeroSMS') }
 ])
 const isOpenAIModelRestrictionDisabled = computed(() =>
   props.account?.platform === 'openai' && openaiPassthroughEnabled.value
@@ -2260,6 +2298,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  editOpenAIOAuthSavedPassword.value = ''
+  openAIEmailProvider.value = 'none'
+  openAIPhoneProvider.value = 'none'
   codexCLIOnlyEnabled.value = false
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
@@ -2280,6 +2321,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     })
     if (newAccount.type === 'oauth') {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
+      editOpenAIOAuthSavedPassword.value = typeof extra?.password === 'string' ? extra.password : ''
+      openAIEmailProvider.value = extra?.openai_email_provider === 'freemail' ? 'freemail' : 'none'
+      openAIPhoneProvider.value = extra?.openai_phone_provider === 'hero-sms' ? 'hero-sms' : 'none'
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -3331,6 +3375,22 @@ const handleSubmit = async () => {
           newExtra.codex_cli_only = false
         } else {
           delete newExtra.codex_cli_only
+        }
+        const savedPassword = editOpenAIOAuthSavedPassword.value.trim()
+        if (savedPassword) {
+          newExtra.password = savedPassword
+        } else {
+          delete newExtra.password
+        }
+        if (openAIEmailProvider.value === 'freemail') {
+          newExtra.openai_email_provider = 'freemail'
+        } else {
+          delete newExtra.openai_email_provider
+        }
+        if (openAIPhoneProvider.value === 'hero-sms') {
+          newExtra.openai_phone_provider = 'hero-sms'
+        } else {
+          delete newExtra.openai_phone_provider
         }
       }
 
