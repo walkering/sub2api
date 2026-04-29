@@ -296,6 +296,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/batch-clear-error", h.Admin.Account.BatchClearError)
 		accounts.POST("/batch-refresh", h.Admin.Account.BatchRefresh)
 		accounts.POST("/batch-openai-auto-reauth", h.Admin.Account.BatchOpenAIAutoReauth)
+		accounts.GET("/openai-auto-reauth-candidates", h.Admin.Account.ListOpenAIAutoReauthCandidates)
 		accounts.GET("/openai-auto-reauth-jobs/:id", h.Admin.Account.GetOpenAIAutoReauthJob)
 
 		// Antigravity 默认模型映射

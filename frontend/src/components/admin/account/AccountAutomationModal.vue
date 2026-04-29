@@ -239,7 +239,7 @@ const proxyEnabled = ref(false)
 const proxyEndpoint = ref('127.0.0.1:7890')
 const searchQuery = ref('')
 const selectedGroup = ref('')
-const selectedStatus = ref('error')
+const selectedStatus = ref('')
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let lastLogSeq = 0
@@ -262,12 +262,6 @@ const groupOptions = computed(() => [
     label: group.name
   })))
 ])
-
-const isTokenExpiredAccount = (account: Account) => {
-  return account.status === 'error'
-    && account.platform === 'openai'
-    && account.type === 'oauth'
-}
 
 const extractEmail = (account: Account) => {
   const candidates = [
@@ -315,20 +309,11 @@ const loadCandidates = async () => {
   loading.value = true
   resultSummary.value = ''
   try {
-    const items: Account[] = []
-    let page = 1
-    let pages = 1
-    do {
-      const response = await adminAPI.accounts.list(page, 200, {
-        status: selectedStatus.value || '',
-        group: selectedGroup.value || '',
-        search: searchQuery.value.trim()
-      })
-      items.push(...response.items)
-      pages = response.pages || 1
-      page += 1
-    } while (page <= pages && page <= 10)
-    candidates.value = items.filter(isTokenExpiredAccount)
+    candidates.value = await adminAPI.accounts.getOpenAIAutoReauthCandidates({
+      status: selectedStatus.value || '',
+      group: selectedGroup.value || '',
+      search: searchQuery.value.trim()
+    })
     selectedIds.value = candidates.value.map(account => account.id)
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.accounts.failedToLoad'))
@@ -436,7 +421,7 @@ watch(
       proxyEndpoint.value = '127.0.0.1:7890'
       searchQuery.value = ''
       selectedGroup.value = ''
-      selectedStatus.value = 'error'
+      selectedStatus.value = ''
     }
   }
 )

@@ -205,6 +205,51 @@ type AccountWithConcurrency struct {
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
 
+func parseAccountListGroupFilter(c *gin.Context) (int64, error) {
+	if c == nil {
+		return 0, nil
+	}
+	groupIDStr := strings.TrimSpace(c.Query("group"))
+	if groupIDStr == "" {
+		return 0, nil
+	}
+	if groupIDStr == accountListGroupUngroupedQueryValue {
+		return service.AccountListGroupUngrouped, nil
+	}
+	groupID, err := strconv.ParseInt(groupIDStr, 10, 64)
+	if err != nil || groupID < 0 {
+		return 0, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter")
+	}
+	return groupID, nil
+}
+
+func buildStringSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		out[normalized] = struct{}{}
+	}
+	return out
+}
+
+func extractEmailDomain(value string) string {
+	email := strings.ToLower(strings.TrimSpace(value))
+	if email == "" {
+		return ""
+	}
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return ""
+	}
+	return strings.TrimSpace(email[at+1:])
+}
+
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
@@ -268,22 +313,10 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
 
-	var groupID int64
-	if groupIDStr := c.Query("group"); groupIDStr != "" {
-		if groupIDStr == accountListGroupUngroupedQueryValue {
-			groupID = service.AccountListGroupUngrouped
-		} else {
-			parsedGroupID, parseErr := strconv.ParseInt(groupIDStr, 10, 64)
-			if parseErr != nil {
-				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
-				return
-			}
-			if parsedGroupID < 0 {
-				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
-				return
-			}
-			groupID = parsedGroupID
-		}
+	groupID, err := parseAccountListGroupFilter(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 
 	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, planType, sortBy, sortOrder)
@@ -474,6 +507,64 @@ func ifNoneMatchMatched(ifNoneMatch, etag string) bool {
 		}
 	}
 	return false
+}
+
+// ListOpenAIAutoReauthCandidates returns OpenAI OAuth accounts whose email domain
+// is included in the configured FreeMail available domain list.
+// GET /api/v1/admin/accounts/openai-auto-reauth-candidates
+func (h *AccountHandler) ListOpenAIAutoReauthCandidates(c *gin.Context) {
+	search := strings.TrimSpace(c.Query("search"))
+	if len(search) > 100 {
+		search = search[:100]
+	}
+	status := strings.TrimSpace(c.Query("status"))
+	groupID, err := parseAccountListGroupFilter(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	allowedDomains := []string{}
+	if h.settingService != nil {
+		allowedDomains = h.settingService.GetOpenAIOAuthFreemailAvailableDomains(c.Request.Context())
+	}
+	allowedDomainSet := buildStringSet(allowedDomains)
+	if len(allowedDomainSet) == 0 {
+		response.Success(c, []dto.Account{})
+		return
+	}
+
+	accounts, err := h.listAccountsFiltered(
+		c.Request.Context(),
+		service.PlatformOpenAI,
+		service.AccountTypeOAuth,
+		status,
+		search,
+		groupID,
+		"",
+		"",
+		"name",
+		"asc",
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	items := make([]*dto.Account, 0, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		email := extractOpenAIAutoReauthEmail(account)
+		if email == "" {
+			continue
+		}
+		if _, ok := allowedDomainSet[extractEmailDomain(email)]; !ok {
+			continue
+		}
+		items = append(items, dto.AccountFromService(account))
+	}
+
+	response.Success(c, items)
 }
 
 // GetByID handles getting an account by ID
@@ -1191,14 +1282,6 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 	})
 }
 
-func isTokenExpiredAccount(account *service.Account) bool {
-	if account == nil {
-		return false
-	}
-	// Temporarily disable token_expired-specific filtering for automation debugging.
-	return account.Status == service.StatusError
-}
-
 func extractOpenAIAutoReauthEmail(account *service.Account) string {
 	if account == nil {
 		return ""
@@ -1216,6 +1299,18 @@ func extractOpenAIAutoReauthEmail(account *service.Account) string {
 		}
 	}
 	return ""
+}
+
+func isOpenAIAutoReauthEmailAllowed(email string, allowedDomains map[string]struct{}) bool {
+	if len(allowedDomains) == 0 {
+		return false
+	}
+	domain := extractEmailDomain(email)
+	if domain == "" {
+		return false
+	}
+	_, ok := allowedDomains[domain]
+	return ok
 }
 
 func extractOpenAIAutoReauthPassword(account *service.Account) string {
@@ -1260,6 +1355,11 @@ func extractOpenAIAutoReauthFreeMailConfig(account *service.Account) *openai.Fre
 	domain := strings.TrimSpace(account.GetExtraString("freemailDomain"))
 	if domain == "" {
 		domain = strings.TrimSpace(account.GetExtraString("freemail_domain"))
+	}
+	if domains := service.ParseOpenAIOAuthFreemailDomains(domain); len(domains) > 0 {
+		domain = domains[0]
+	} else {
+		domain = ""
 	}
 	if baseURL == "" && username == "" && password == "" && domain == "" {
 		return nil
@@ -1342,7 +1442,7 @@ func formatOpenAIAutoReauthStep(step int, message string) string {
 	return fmt.Sprintf("步骤 %d/%d：%s", step, openAIAutoReauthTotalSteps, message)
 }
 
-// BatchOpenAIAutoReauth handles pure HTTP OpenAI OAuth re-login for token_expired accounts.
+// BatchOpenAIAutoReauth handles pure HTTP OpenAI OAuth re-login.
 // POST /api/v1/admin/accounts/batch-openai-auto-reauth
 func (h *AccountHandler) BatchOpenAIAutoReauth(c *gin.Context) {
 	var req struct {
@@ -1412,6 +1512,12 @@ func (h *AccountHandler) runOpenAIAutoReauthJob(ctx context.Context, job *openAI
 		return
 	}
 
+	allowedDomains := []string{}
+	if h.settingService != nil {
+		allowedDomains = h.settingService.GetOpenAIOAuthFreemailAvailableDomains(ctx)
+	}
+	allowedDomainSet := buildStringSet(allowedDomains)
+
 	foundIDs := make(map[int64]bool, len(accounts))
 	for _, account := range accounts {
 		if account != nil {
@@ -1447,7 +1553,7 @@ func (h *AccountHandler) runOpenAIAutoReauthJob(ctx context.Context, job *openAI
 		g.Go(func() error {
 			accountID := acc.ID
 			job.appendLog("info", formatOpenAIAutoReauthStep(1, "开始处理账号 "+acc.Name), &accountID)
-			job.appendLog("info", formatOpenAIAutoReauthStep(2, "开始校验账号类型、错误状态与登录凭证"), &accountID)
+			job.appendLog("info", formatOpenAIAutoReauthStep(2, "开始校验账号类型、邮箱域名与登录凭证"), &accountID)
 
 			if acc.Platform != service.PlatformOpenAI || acc.Type != service.AccountTypeOAuth {
 				mu.Lock()
@@ -1457,16 +1563,16 @@ func (h *AccountHandler) runOpenAIAutoReauthJob(ctx context.Context, job *openAI
 				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：仅支持 OpenAI OAuth 账号"), &accountID)
 				return nil
 			}
-			if !isTokenExpiredAccount(acc) {
+
+			email := extractOpenAIAutoReauthEmail(acc)
+			if !isOpenAIAutoReauthEmailAllowed(email, allowedDomainSet) {
 				mu.Lock()
 				skippedCount++
 				mu.Unlock()
-				job.addWarning(acc.ID, "account is not in error status")
-				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：账号不是错误状态"), &accountID)
+				job.addWarning(acc.ID, "account email domain is not in allowed FreeMail domain list")
+				job.appendLog("warn", formatOpenAIAutoReauthStep(2, "跳过：账号邮箱域名不在 FreeMail 可用域名列表中"), &accountID)
 				return nil
 			}
-
-			email := extractOpenAIAutoReauthEmail(acc)
 			password := extractOpenAIAutoReauthPassword(acc)
 			emailProvider := extractOpenAIAutoReauthEmailProvider(acc)
 			phoneProvider := extractOpenAIAutoReauthPhoneProvider(acc)

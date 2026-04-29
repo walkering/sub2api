@@ -436,8 +436,12 @@ func (s *SettingService) GetOpenAIOAuthFreemailConfig(ctx context.Context) *open
 	baseURL := strings.TrimSpace(settings.OpenAIOAuthFreemailBaseURL)
 	username := strings.TrimSpace(settings.OpenAIOAuthFreemailUsername)
 	password := strings.TrimSpace(settings.OpenAIOAuthFreemailPassword)
-	domain := strings.TrimSpace(settings.OpenAIOAuthFreemailDomain)
-	if baseURL == "" && username == "" && password == "" && domain == "" {
+	domains := ParseOpenAIOAuthFreemailDomains(settings.OpenAIOAuthFreemailDomain)
+	domain := ""
+	if len(domains) > 0 {
+		domain = domains[0]
+	}
+	if baseURL == "" && username == "" && password == "" && len(domains) == 0 {
 		return nil
 	}
 	return &openai.FreeMailOTPConfig{
@@ -446,6 +450,48 @@ func (s *SettingService) GetOpenAIOAuthFreemailConfig(ctx context.Context) *open
 		Password: password,
 		Domain:   domain,
 	}
+}
+
+func (s *SettingService) GetOpenAIOAuthFreemailAvailableDomains(ctx context.Context) []string {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	settings, err := s.GetAllSettings(ctx)
+	if err != nil || settings == nil {
+		return nil
+	}
+	return ParseOpenAIOAuthFreemailDomains(settings.OpenAIOAuthFreemailDomain)
+}
+
+func ParseOpenAIOAuthFreemailDomains(raw string) []string {
+	normalized := strings.NewReplacer("，", ",", ";", ",").Replace(raw)
+	parts := strings.Split(normalized, ",")
+	seen := make(map[string]struct{}, len(parts))
+	domains := make([]string, 0, len(parts))
+	for _, part := range parts {
+		candidate := strings.ToLower(strings.TrimSpace(part))
+		candidate = strings.TrimPrefix(candidate, "@")
+		if candidate == "" {
+			continue
+		}
+		if _, domain, ok := strings.Cut(candidate, "@"); ok {
+			candidate = strings.TrimSpace(domain)
+		}
+		candidate = strings.Trim(candidate, ".,")
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		domains = append(domains, candidate)
+	}
+	return domains
+}
+
+func NormalizeOpenAIOAuthFreemailDomains(raw string) string {
+	return strings.Join(ParseOpenAIOAuthFreemailDomains(raw), ",")
 }
 
 func (s *SettingService) GetOpenAIOAuthPhoneOTPConfig(ctx context.Context) *openai.PhoneOTPProviderConfig {
@@ -1187,7 +1233,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if strings.TrimSpace(settings.OpenAIOAuthFreemailPassword) != "" {
 		updates[SettingKeyOpenAIOAuthFreemailPassword] = strings.TrimSpace(settings.OpenAIOAuthFreemailPassword)
 	}
-	updates[SettingKeyOpenAIOAuthFreemailDomain] = strings.ToLower(strings.TrimSpace(settings.OpenAIOAuthFreemailDomain))
+	updates[SettingKeyOpenAIOAuthFreemailDomain] = NormalizeOpenAIOAuthFreemailDomains(settings.OpenAIOAuthFreemailDomain)
 	updates[SettingKeyOpenAIOAuthPhoneBaseURL] = strings.TrimSpace(settings.OpenAIOAuthPhoneBaseURL)
 	if strings.TrimSpace(settings.OpenAIOAuthPhoneAPIKey) != "" {
 		updates[SettingKeyOpenAIOAuthPhoneAPIKey] = strings.TrimSpace(settings.OpenAIOAuthPhoneAPIKey)
@@ -2101,7 +2147,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		OpenAIOAuthFreemailBaseURL:            strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailBaseURL]),
 		OpenAIOAuthFreemailUsername:           strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailUsername]),
 		OpenAIOAuthFreemailPasswordConfigured: strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailPassword]) != "",
-		OpenAIOAuthFreemailDomain:             strings.TrimSpace(settings[SettingKeyOpenAIOAuthFreemailDomain]),
+		OpenAIOAuthFreemailDomain:             NormalizeOpenAIOAuthFreemailDomains(settings[SettingKeyOpenAIOAuthFreemailDomain]),
 		OpenAIOAuthPhoneBaseURL:               strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneBaseURL]),
 		OpenAIOAuthPhoneAPIKeyConfigured:      strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneAPIKey]) != "",
 		OpenAIOAuthPhoneServiceCode:           strings.TrimSpace(settings[SettingKeyOpenAIOAuthPhoneServiceCode]),

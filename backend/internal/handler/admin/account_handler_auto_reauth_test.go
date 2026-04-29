@@ -7,24 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsTokenExpiredAccount(t *testing.T) {
-	t.Run("matches token_expired error payload", func(t *testing.T) {
-		account := &service.Account{
-			Status:       service.StatusError,
-			ErrorMessage: `API returned 401: {"error":{"code":"token_expired","message":"Provided authentication token is expired."}}`,
-		}
-		require.True(t, isTokenExpiredAccount(account))
-	})
-
-	t.Run("requires error status", func(t *testing.T) {
-		account := &service.Account{
-			Status:       service.StatusActive,
-			ErrorMessage: `token_expired`,
-		}
-		require.False(t, isTokenExpiredAccount(account))
-	})
-}
-
 func TestExtractOpenAIAutoReauthFields(t *testing.T) {
 	account := &service.Account{
 		Name: "fallback@example.com",
@@ -43,6 +25,18 @@ func TestExtractOpenAIAutoReauthFields(t *testing.T) {
 	require.Equal(t, "secret-123", extractOpenAIAutoReauthPassword(account))
 	require.Equal(t, "freemail", extractOpenAIAutoReauthEmailProvider(account))
 	require.Equal(t, "hero-sms", extractOpenAIAutoReauthPhoneProvider(account))
+}
+
+func TestExtractEmailDomain(t *testing.T) {
+	require.Equal(t, "webcode.team", extractEmailDomain("User@webcode.team"))
+	require.Empty(t, extractEmailDomain("invalid-email"))
+}
+
+func TestIsOpenAIAutoReauthEmailAllowed(t *testing.T) {
+	allowedDomains := buildStringSet([]string{"webcode.team", "mail.example.com"})
+	require.True(t, isOpenAIAutoReauthEmailAllowed("user@webcode.team", allowedDomains))
+	require.False(t, isOpenAIAutoReauthEmailAllowed("user@other.example", allowedDomains))
+	require.False(t, isOpenAIAutoReauthEmailAllowed("", allowedDomains))
 }
 
 func TestExtractOpenAIAuthState(t *testing.T) {

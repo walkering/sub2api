@@ -676,6 +676,17 @@ export interface OpenAIAutoReauthJobStatus {
   warnings: OpenAIAutoReauthJobIssue[]
 }
 
+export async function getOpenAIAutoReauthCandidates(filters?: {
+  status?: string
+  group?: string
+  search?: string
+}): Promise<Account[]> {
+  const { data } = await apiClient.get<Account[]>('/admin/accounts/openai-auto-reauth-candidates', {
+    params: filters
+  })
+  return data
+}
+
 /**
  * Batch clear account errors
  * @param accountIds - Array of account IDs
@@ -697,7 +708,7 @@ export async function batchRefresh(accountIds: number[]): Promise<BatchOperation
   const { data } = await apiClient.post<BatchOperationResult>('/admin/accounts/batch-refresh', {
     account_ids: accountIds,
   }, {
-    timeout: 120000  // 120s timeout for large batch refreshes
+    timeout: 0 // Do not let the frontend abort long-running batch refreshes.
   })
   return data
 }
@@ -719,7 +730,7 @@ export async function batchOpenAIAutoReauth(
     proxy_enabled: options?.proxy_enabled === true,
     proxy_endpoint: options?.proxy_endpoint || ''
   }, {
-    timeout: 30000
+    timeout: 0
   })
   return data
 }
@@ -780,6 +791,7 @@ export const accountsAPI = {
   getAntigravityDefaultModelMapping,
   batchClearError,
   batchRefresh,
+  getOpenAIAutoReauthCandidates,
   batchOpenAIAutoReauth,
   getOpenAIAutoReauthJob,
   setPrivacy

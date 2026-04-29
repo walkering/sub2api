@@ -102,7 +102,7 @@ const (
 	SettingKeyOpenAIOAuthFreemailBaseURL       = "openai_oauth_freemail_base_url"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 服务地址
 	SettingKeyOpenAIOAuthFreemailUsername      = "openai_oauth_freemail_username"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录账号
 	SettingKeyOpenAIOAuthFreemailPassword      = "openai_oauth_freemail_password"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录密码
-	SettingKeyOpenAIOAuthFreemailDomain        = "openai_oauth_freemail_domain"        // OpenAI OAuth 邮箱 OTP 的 FreeMail 默认域名
+	SettingKeyOpenAIOAuthFreemailDomain        = "openai_oauth_freemail_domain"        // OpenAI OAuth 邮箱 OTP 的 FreeMail 可用域名列表（逗号分隔，第一个为默认）
 	SettingKeyOpenAIOAuthPhoneBaseURL          = "openai_oauth_phone_base_url"         // OpenAI OAuth 手机 OTP 的 HeroSMS 接口地址
 	SettingKeyOpenAIOAuthPhoneAPIKey           = "openai_oauth_phone_api_key"          // OpenAI OAuth 手机 OTP 的 HeroSMS API Key
 	SettingKeyOpenAIOAuthPhoneServiceCode      = "openai_oauth_phone_service_code"     // OpenAI OAuth 手机 OTP 的 HeroSMS service
