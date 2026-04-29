@@ -2543,6 +2543,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			filters.PrivacyMode,
 			"",
 			"",
+			"",
 		)
 		if err != nil {
 			return nil, err

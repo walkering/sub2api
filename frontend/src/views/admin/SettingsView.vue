@@ -2564,6 +2564,38 @@
                     {{ t("admin.settings.defaults.openaiOAuthFreemailDomainHint") }}
                   </p>
                 </div>
+                <div class="md:col-span-2">
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.defaults.openaiOAuthEmailOTPAdvanced") }}
+                  </label>
+                  <div class="grid gap-3 md:grid-cols-3">
+                    <input
+                      v-model.number="form.openai_oauth_email_otp_poll_interval_ms"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthEmailOTPPollIntervalMsPlaceholder')"
+                    />
+                    <input
+                      v-model.number="form.openai_oauth_email_otp_resend_after_seconds"
+                      type="number"
+                      min="0"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthEmailOTPResendAfterSecondsPlaceholder')"
+                    />
+                    <input
+                      v-model.number="form.openai_oauth_email_otp_poll_attempts"
+                      type="number"
+                      min="1"
+                      class="input"
+                      :placeholder="t('admin.settings.defaults.openaiOAuthEmailOTPPollAttemptsPlaceholder')"
+                    />
+                  </div>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.defaults.openaiOAuthEmailOTPAdvancedHint") }}
+                  </p>
+                </div>
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -5883,6 +5915,9 @@ type SettingsForm = Omit<
   openai_oauth_freemail_username: string;
   openai_oauth_freemail_password: string;
   openai_oauth_freemail_domain: string;
+  openai_oauth_email_otp_poll_interval_ms: number;
+  openai_oauth_email_otp_resend_after_seconds: number;
+  openai_oauth_email_otp_poll_attempts: number;
   openai_oauth_phone_base_url: string;
   openai_oauth_phone_api_key: string;
   openai_oauth_phone_service_code: string;
@@ -5917,6 +5952,9 @@ const form = reactive<SettingsForm>({
   openai_oauth_freemail_password: "",
   openai_oauth_freemail_password_configured: false,
   openai_oauth_freemail_domain: "",
+  openai_oauth_email_otp_poll_interval_ms: 3000,
+  openai_oauth_email_otp_resend_after_seconds: 15,
+  openai_oauth_email_otp_poll_attempts: 5,
   openai_oauth_phone_base_url: "https://hero-sms.com/stubs/handler_api.php",
   openai_oauth_phone_api_key: "",
   openai_oauth_phone_api_key_configured: false,
@@ -6884,6 +6922,9 @@ async function saveSettings() {
       openai_oauth_freemail_password:
         form.openai_oauth_freemail_password || undefined,
       openai_oauth_freemail_domain: form.openai_oauth_freemail_domain,
+      openai_oauth_email_otp_poll_interval_ms: Math.max(1000, Math.floor(Number(form.openai_oauth_email_otp_poll_interval_ms) || 3000)),
+      openai_oauth_email_otp_resend_after_seconds: Math.max(0, Math.floor(Number(form.openai_oauth_email_otp_resend_after_seconds) || 15)),
+      openai_oauth_email_otp_poll_attempts: Math.max(1, Math.floor(Number(form.openai_oauth_email_otp_poll_attempts) || 5)),
       openai_oauth_phone_base_url: form.openai_oauth_phone_base_url,
       openai_oauth_phone_api_key: form.openai_oauth_phone_api_key || undefined,
       openai_oauth_phone_service_code: form.openai_oauth_phone_service_code,

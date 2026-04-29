@@ -466,7 +466,7 @@ func (c *heroSMSClient) acquireNumber(ctx context.Context) (*heroSMSLease, error
 	}
 	body, ok := payload.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf(normalizeHeroSMSMessage(payload))
+		return nil, fmt.Errorf("%s", normalizeHeroSMSMessage(payload))
 	}
 	providerLeaseID := firstNonEmptyString(
 		stringFromAny(body["activationId"]),
@@ -508,7 +508,7 @@ func (c *heroSMSClient) pollMessages(ctx context.Context, lease *heroSMSLease) (
 		case "", "STATUS_WAIT_CODE", "STATUS_WAIT_RETRY", "STATUS_CANCEL":
 			return nil, nil
 		default:
-			return nil, fmt.Errorf(normalizeHeroSMSMessage(text))
+			return nil, fmt.Errorf("%s", normalizeHeroSMSMessage(text))
 		}
 	}
 	body, ok := payload.(map[string]any)
@@ -552,7 +552,7 @@ func (c *heroSMSClient) activateForPolling(ctx context.Context, lease *heroSMSLe
 		case "", "ACCESS_RETRY_GET", "ACCESS_READY", "ACCESS_ACTIVATION":
 			return payload, nil
 		default:
-			return nil, fmt.Errorf(normalizeHeroSMSMessage(text))
+			return nil, fmt.Errorf("%s", normalizeHeroSMSMessage(text))
 		}
 	}
 	return payload, nil
@@ -718,7 +718,7 @@ func (c *heroSMSClient) finishWithAction(ctx context.Context, lease *heroSMSLeas
 		if normalized == "" || normalized == "ACCESS_ACTIVATION" || normalized == "ACCESS_CANCEL" || normalized == "STATUS_CANCEL" {
 			return nil
 		}
-		return fmt.Errorf(normalizeHeroSMSMessage(normalized))
+		return fmt.Errorf("%s", normalizeHeroSMSMessage(normalized))
 	}
 	return nil
 }
@@ -749,7 +749,7 @@ func (c *heroSMSClient) request(ctx context.Context, params url.Values) (any, er
 	}
 	payload := parseHeroSMSPayload(raw)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf(normalizeHeroSMSMessage(payload))
+		return nil, fmt.Errorf("%s", normalizeHeroSMSMessage(payload))
 	}
 	return payload, nil
 }

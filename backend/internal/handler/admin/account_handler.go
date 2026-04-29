@@ -1366,6 +1366,18 @@ func extractOpenAIAutoReauthFreeMailConfig(account *service.Account) *openai.Fre
 	if domain == "" {
 		domain = strings.TrimSpace(account.GetExtraString("freemail_domain"))
 	}
+	pollIntervalMillis := account.GetExtraInt("freemailPollIntervalMs")
+	if pollIntervalMillis == 0 {
+		pollIntervalMillis = account.GetExtraInt("freemail_poll_interval_ms")
+	}
+	resendAfterSeconds := account.GetExtraInt("freemailResendAfterSeconds")
+	if resendAfterSeconds == 0 {
+		resendAfterSeconds = account.GetExtraInt("freemail_resend_after_seconds")
+	}
+	pollAttempts := account.GetExtraInt("freemailPollAttempts")
+	if pollAttempts == 0 {
+		pollAttempts = account.GetExtraInt("freemail_poll_attempts")
+	}
 	if domains := service.ParseOpenAIOAuthFreemailDomains(domain); len(domains) > 0 {
 		domain = domains[0]
 	} else {
@@ -1375,10 +1387,15 @@ func extractOpenAIAutoReauthFreeMailConfig(account *service.Account) *openai.Fre
 		return nil
 	}
 	return &openai.FreeMailOTPConfig{
-		BaseURL:  baseURL,
-		Username: username,
-		Password: password,
-		Domain:   domain,
+		BaseURL:            baseURL,
+		Username:           username,
+		Password:           password,
+		Domain:             domain,
+		PollIntervalMillis: pollIntervalMillis,
+		ResendAfterSeconds: resendAfterSeconds,
+		MaxAttempts:        pollAttempts,
+		Interval:           time.Duration(pollIntervalMillis) * time.Millisecond,
+		ResendAfter:        time.Duration(resendAfterSeconds) * time.Second,
 	}
 }
 

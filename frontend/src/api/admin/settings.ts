@@ -307,6 +307,9 @@ export interface SystemSettings {
   openai_oauth_freemail_username: string;
   openai_oauth_freemail_password_configured: boolean;
   openai_oauth_freemail_domain: string;
+  openai_oauth_email_otp_poll_interval_ms: number;
+  openai_oauth_email_otp_resend_after_seconds: number;
+  openai_oauth_email_otp_poll_attempts: number;
   openai_oauth_phone_base_url: string;
   openai_oauth_phone_api_key_configured: boolean;
   openai_oauth_phone_service_code: string;
@@ -515,6 +518,9 @@ export interface UpdateSettingsRequest {
   openai_oauth_freemail_username?: string;
   openai_oauth_freemail_password?: string;
   openai_oauth_freemail_domain?: string;
+  openai_oauth_email_otp_poll_interval_ms?: number;
+  openai_oauth_email_otp_resend_after_seconds?: number;
+  openai_oauth_email_otp_poll_attempts?: number;
   openai_oauth_phone_base_url?: string;
   openai_oauth_phone_api_key?: string;
   openai_oauth_phone_service_code?: string;

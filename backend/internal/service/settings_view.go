@@ -24,6 +24,9 @@ type SystemSettings struct {
 	OpenAIOAuthFreemailPassword           string
 	OpenAIOAuthFreemailPasswordConfigured bool
 	OpenAIOAuthFreemailDomain             string
+	OpenAIOAuthEmailOTPPollIntervalMS     int
+	OpenAIOAuthEmailOTPResendAfterSeconds int
+	OpenAIOAuthEmailOTPPollAttempts       int
 	OpenAIOAuthPhoneBaseURL               string
 	OpenAIOAuthPhoneAPIKey                string
 	OpenAIOAuthPhoneAPIKeyConfigured      bool

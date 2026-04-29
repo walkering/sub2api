@@ -34,6 +34,9 @@ type SystemSettings struct {
 	OpenAIOAuthFreemailUsername           string   `json:"openai_oauth_freemail_username"`
 	OpenAIOAuthFreemailPasswordConfigured bool     `json:"openai_oauth_freemail_password_configured"`
 	OpenAIOAuthFreemailDomain             string   `json:"openai_oauth_freemail_domain"`
+	OpenAIOAuthEmailOTPPollIntervalMS     int      `json:"openai_oauth_email_otp_poll_interval_ms"`
+	OpenAIOAuthEmailOTPResendAfterSeconds int      `json:"openai_oauth_email_otp_resend_after_seconds"`
+	OpenAIOAuthEmailOTPPollAttempts       int      `json:"openai_oauth_email_otp_poll_attempts"`
 	OpenAIOAuthPhoneBaseURL               string   `json:"openai_oauth_phone_base_url"`
 	OpenAIOAuthPhoneAPIKeyConfigured      bool     `json:"openai_oauth_phone_api_key_configured"`
 	OpenAIOAuthPhoneServiceCode           string   `json:"openai_oauth_phone_service_code"`

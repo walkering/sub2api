@@ -118,6 +118,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIOAuthFreemailUsername:            settings.OpenAIOAuthFreemailUsername,
 		OpenAIOAuthFreemailPasswordConfigured:  settings.OpenAIOAuthFreemailPasswordConfigured,
 		OpenAIOAuthFreemailDomain:              settings.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthEmailOTPPollIntervalMS:      settings.OpenAIOAuthEmailOTPPollIntervalMS,
+		OpenAIOAuthEmailOTPResendAfterSeconds:  settings.OpenAIOAuthEmailOTPResendAfterSeconds,
+		OpenAIOAuthEmailOTPPollAttempts:        settings.OpenAIOAuthEmailOTPPollAttempts,
 		OpenAIOAuthPhoneBaseURL:                settings.OpenAIOAuthPhoneBaseURL,
 		OpenAIOAuthPhoneAPIKeyConfigured:       settings.OpenAIOAuthPhoneAPIKeyConfigured,
 		OpenAIOAuthPhoneServiceCode:            settings.OpenAIOAuthPhoneServiceCode,
@@ -321,6 +324,9 @@ type UpdateSettingsRequest struct {
 	OpenAIOAuthFreemailUsername      string   `json:"openai_oauth_freemail_username"`
 	OpenAIOAuthFreemailPassword      string   `json:"openai_oauth_freemail_password"`
 	OpenAIOAuthFreemailDomain        string   `json:"openai_oauth_freemail_domain"`
+	OpenAIOAuthEmailOTPPollIntervalMS int     `json:"openai_oauth_email_otp_poll_interval_ms"`
+	OpenAIOAuthEmailOTPResendAfterSecs int    `json:"openai_oauth_email_otp_resend_after_seconds"`
+	OpenAIOAuthEmailOTPPollAttempts   int     `json:"openai_oauth_email_otp_poll_attempts"`
 	OpenAIOAuthPhoneBaseURL          string   `json:"openai_oauth_phone_base_url"`
 	OpenAIOAuthPhoneAPIKey           string   `json:"openai_oauth_phone_api_key"`
 	OpenAIOAuthPhoneServiceCode      string   `json:"openai_oauth_phone_service_code"`
@@ -1178,6 +1184,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIOAuthFreemailUsername:      req.OpenAIOAuthFreemailUsername,
 		OpenAIOAuthFreemailPassword:      req.OpenAIOAuthFreemailPassword,
 		OpenAIOAuthFreemailDomain:        req.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthEmailOTPPollIntervalMS: req.OpenAIOAuthEmailOTPPollIntervalMS,
+		OpenAIOAuthEmailOTPResendAfterSeconds: req.OpenAIOAuthEmailOTPResendAfterSecs,
+		OpenAIOAuthEmailOTPPollAttempts: req.OpenAIOAuthEmailOTPPollAttempts,
 		OpenAIOAuthPhoneBaseURL:          req.OpenAIOAuthPhoneBaseURL,
 		OpenAIOAuthPhoneAPIKey:           req.OpenAIOAuthPhoneAPIKey,
 		OpenAIOAuthPhoneServiceCode:      req.OpenAIOAuthPhoneServiceCode,
@@ -1524,6 +1533,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIOAuthFreemailUsername:            updatedSettings.OpenAIOAuthFreemailUsername,
 		OpenAIOAuthFreemailPasswordConfigured:  updatedSettings.OpenAIOAuthFreemailPasswordConfigured,
 		OpenAIOAuthFreemailDomain:              updatedSettings.OpenAIOAuthFreemailDomain,
+		OpenAIOAuthEmailOTPPollIntervalMS:      updatedSettings.OpenAIOAuthEmailOTPPollIntervalMS,
+		OpenAIOAuthEmailOTPResendAfterSeconds:  updatedSettings.OpenAIOAuthEmailOTPResendAfterSeconds,
+		OpenAIOAuthEmailOTPPollAttempts:        updatedSettings.OpenAIOAuthEmailOTPPollAttempts,
 		OpenAIOAuthPhoneBaseURL:                updatedSettings.OpenAIOAuthPhoneBaseURL,
 		OpenAIOAuthPhoneAPIKeyConfigured:       updatedSettings.OpenAIOAuthPhoneAPIKeyConfigured,
 		OpenAIOAuthPhoneServiceCode:            updatedSettings.OpenAIOAuthPhoneServiceCode,
@@ -1744,6 +1756,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.OpenAIOAuthFreemailDomain != after.OpenAIOAuthFreemailDomain {
 		changed = append(changed, "openai_oauth_freemail_domain")
+	}
+	if before.OpenAIOAuthEmailOTPPollIntervalMS != after.OpenAIOAuthEmailOTPPollIntervalMS {
+		changed = append(changed, "openai_oauth_email_otp_poll_interval_ms")
+	}
+	if before.OpenAIOAuthEmailOTPResendAfterSeconds != after.OpenAIOAuthEmailOTPResendAfterSeconds {
+		changed = append(changed, "openai_oauth_email_otp_resend_after_seconds")
+	}
+	if before.OpenAIOAuthEmailOTPPollAttempts != after.OpenAIOAuthEmailOTPPollAttempts {
+		changed = append(changed, "openai_oauth_email_otp_poll_attempts")
 	}
 	if before.OpenAIOAuthPhoneBaseURL != after.OpenAIOAuthPhoneBaseURL {
 		changed = append(changed, "openai_oauth_phone_base_url")

@@ -445,10 +445,15 @@ func (s *SettingService) GetOpenAIOAuthFreemailConfig(ctx context.Context) *open
 		return nil
 	}
 	return &openai.FreeMailOTPConfig{
-		BaseURL:  baseURL,
-		Username: username,
-		Password: password,
-		Domain:   domain,
+		BaseURL:            baseURL,
+		Username:           username,
+		Password:           password,
+		Domain:             domain,
+		PollIntervalMillis: settings.OpenAIOAuthEmailOTPPollIntervalMS,
+		ResendAfterSeconds: settings.OpenAIOAuthEmailOTPResendAfterSeconds,
+		MaxAttempts:        settings.OpenAIOAuthEmailOTPPollAttempts,
+		Interval:           time.Duration(settings.OpenAIOAuthEmailOTPPollIntervalMS) * time.Millisecond,
+		ResendAfter:        time.Duration(settings.OpenAIOAuthEmailOTPResendAfterSeconds) * time.Second,
 	}
 }
 
@@ -1246,6 +1251,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIOAuthPhoneLeaseMinutes] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhoneLeaseMinutes, 20))
 	updates[SettingKeyOpenAIOAuthPhonePollIntervalMS] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhonePollIntervalMS, 5000))
 	updates[SettingKeyOpenAIOAuthPhoneResendAfterSecs] = strconv.Itoa(maxInt(settings.OpenAIOAuthPhoneResendAfterSeconds, 30))
+	updates[SettingKeyOpenAIOAuthEmailOTPPollIntervalMS] = strconv.Itoa(maxInt(settings.OpenAIOAuthEmailOTPPollIntervalMS, 3000))
+	updates[SettingKeyOpenAIOAuthEmailOTPResendAfterSecs] = strconv.Itoa(maxInt(settings.OpenAIOAuthEmailOTPResendAfterSeconds, 15))
+	updates[SettingKeyOpenAIOAuthEmailOTPPollAttempts] = strconv.Itoa(maxInt(settings.OpenAIOAuthEmailOTPPollAttempts, 5))
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
@@ -2092,6 +2100,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIOAuthPhoneLeaseMinutes:             "20",
 		SettingKeyOpenAIOAuthPhonePollIntervalMS:           "5000",
 		SettingKeyOpenAIOAuthPhoneResendAfterSecs:          "30",
+		SettingKeyOpenAIOAuthEmailOTPPollIntervalMS:        "3000",
+		SettingKeyOpenAIOAuthEmailOTPResendAfterSecs:       "15",
+		SettingKeyOpenAIOAuthEmailOTPPollAttempts:          "5",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -2158,6 +2169,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		OpenAIOAuthPhoneLeaseMinutes:          parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhoneLeaseMinutes], 20),
 		OpenAIOAuthPhonePollIntervalMS:        parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhonePollIntervalMS], 5000),
 		OpenAIOAuthPhoneResendAfterSeconds:    parseIntWithFallback(settings[SettingKeyOpenAIOAuthPhoneResendAfterSecs], 30),
+		OpenAIOAuthEmailOTPPollIntervalMS:     parseIntWithFallback(settings[SettingKeyOpenAIOAuthEmailOTPPollIntervalMS], 3000),
+		OpenAIOAuthEmailOTPResendAfterSeconds: parseIntWithFallback(settings[SettingKeyOpenAIOAuthEmailOTPResendAfterSecs], 15),
+		OpenAIOAuthEmailOTPPollAttempts:       parseIntWithFallback(settings[SettingKeyOpenAIOAuthEmailOTPPollAttempts], 5),
 		FrontendURL:                           settings[SettingKeyFrontendURL],
 		InvitationCodeEnabled:                 settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                           settings[SettingKeyTotpEnabled] == "true",

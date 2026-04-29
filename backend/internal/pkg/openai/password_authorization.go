@@ -31,6 +31,7 @@ var (
 
 const (
 	passwordAuthorizationIssuer  = "https://auth.openai.com"
+	passwordAuthorizationChatGPT = "https://chatgpt.com"
 	passwordAuthorizationTimeout = 90 * time.Second
 	defaultFreemailBaseURL       = "https://freemail.walker-feng.workers.dev"
 
@@ -40,8 +41,11 @@ const (
 	sentinelFlowAuthorizeContinue = "authorize_continue"
 	sentinelFlowEmailOTPValidate  = "email_otp_validate"
 	sentinelFlowPasswordVerify    = "password_verify"
+	sentinelFlowRegisterUser      = "username_password_create"
 	sentinelFlowCreateAccount     = "oauth_create_account"
 	pathAuthorizeContinue         = "/api/accounts/authorize/continue"
+	pathRegisterUser              = "/api/accounts/user/register"
+	pathRegisterEmailOTPSend      = "/api/accounts/email-otp/send"
 	pathPasswordlessSendOTP       = "/api/accounts/passwordless/send-otp"
 	pathEmailOTPValidate          = "/api/accounts/email-otp/validate"
 	pathPasswordVerify            = "/api/accounts/password/verify"
@@ -56,6 +60,7 @@ type PasswordAuthorizationInput struct {
 	AuthURL        string
 	Email          string
 	Password       string
+	WorkflowKind   string
 	ProxyURL       string
 	Logger         *slog.Logger
 	Logf           func(level, message string)
@@ -65,12 +70,15 @@ type PasswordAuthorizationInput struct {
 }
 
 type FreeMailOTPConfig struct {
-	BaseURL     string
-	Username    string
-	Password    string
-	Domain      string
-	MaxAttempts int
-	Interval    time.Duration
+	BaseURL            string
+	Username           string
+	Password           string
+	Domain             string
+	MaxAttempts        int
+	Interval           time.Duration
+	PollIntervalMillis int
+	ResendAfter        time.Duration
+	ResendAfterSeconds int
 }
 
 type passwordAuthorizationPage struct {
@@ -200,87 +208,27 @@ func AcquireAuthorizationCodeWithPassword(ctx context.Context, input PasswordAut
 
 	stepLogf("info", "", "开始 OpenAI 纯 HTTP 登录", "email", email)
 
-	stepLogf("info", "1", "打开 OAuth 授权页", "email", email)
-	if err := startAuthorization(ctx, session, authURL); err != nil {
-		stepLogf("error", "1", "打开 OAuth 授权页失败: "+err.Error(), "email", email)
-		return "", err
-	}
-	stepLogf("info", "1", "打开 OAuth 授权页成功，已建立 login_session 会话", "email", email)
-
-	stepLogf("info", "2", "提交登录邮箱", "email", email)
-	if err := postAuthorizeContinue(ctx, session, sentinelClient, email); err != nil {
-		stepLogf("error", "2", "提交登录邮箱失败: "+err.Error(), "email", email)
-		return "", err
-	}
-	stepLogf("info", "2", "提交登录邮箱成功，已进入密码验证阶段", "email", email)
-
 	passwordSubmittedAt := time.Now().UTC()
-	var continueURL string
-	var pageType string
-	stepLogf("info", "3", "在密码页触发邮箱验证码发送（passwordless）", "email", email)
-	continueURL, pageType, err = postPasswordlessSendOTP(ctx, session)
+	finalPage, err := advancePasswordAuthorizationFlow(ctx, &passwordAuthorizationFlowContext{
+		email:               email,
+		password:            input.Password,
+		passwordSubmittedAt: passwordSubmittedAt,
+		workflowKind:        normalizePasswordAuthorizationWorkflowKind(input.WorkflowKind),
+		baseStepPrefix:      input.StepPrefix,
+		session:             session,
+		sentinel:            sentinelClient,
+		freeMailConfig:      input.FreeMailConfig,
+		phoneConfig:         input.PhoneConfig,
+		logf:                logf,
+		stepLogf:            stepLogf,
+	}, passwordAuthorizationFlowPage{})
 	if err != nil {
-		stepLogf("error", "3", "发送邮箱验证码失败: "+err.Error(), "email", email)
 		return "", err
 	}
-	stepLogf("info", "3", "邮箱验证码发送成功，"+describeAuthPage(continueURL, pageType), "email", email)
-	stepLogf("info", "4", "开始通过 FreeMail 拉取并验证邮箱 OTP", "email", email)
-	continueURL, pageType, err = waitAndValidateEmailOTP(ctx, session, sentinelClient, input.FreeMailConfig, email, passwordSubmittedAt, logf, extendPasswordAuthorizationStepPrefix(input.StepPrefix, "4"))
-	if err != nil {
-		stepLogf("error", "4", "邮箱 OTP 验证失败: "+err.Error(), "email", email)
-		if errors.Is(err, ErrPasswordAuthorizationEmailOTP) {
-			return "", err
-		}
-		return "", fmt.Errorf("email otp validation failed: %w", err)
+	code := extractCodeFromURL(finalPage.ContinueURL)
+	if strings.TrimSpace(code) == "" {
+		return "", fmt.Errorf("authorization code not found in workflow result")
 	}
-	stepLogf("info", "4", "邮箱 OTP 验证成功，"+describeAuthPage(continueURL, pageType), "email", email)
-	if strings.Contains(strings.ToLower(continueURL), "about-you") {
-		stepLogf("info", "5", "检测到 about-you 页面，开始补全资料", "email", email)
-		createdContinueURL, createdPageType, createErr := createAccountProfile(ctx, session, sentinelClient)
-		if createErr == nil {
-			if strings.TrimSpace(createdContinueURL) != "" {
-				continueURL = createdContinueURL
-			}
-			if strings.TrimSpace(createdPageType) != "" {
-				pageType = createdPageType
-			}
-			stepLogf("info", "5", "补全资料成功，"+describeAuthPage(continueURL, pageType), "email", email)
-		} else {
-			stepLogf("warn", "5", "补全资料失败，继续沿用当前页面: "+createErr.Error(), "email", email)
-		}
-	}
-	if containsAddPhoneMarker(continueURL, pageType) {
-		if input.PhoneConfig == nil {
-			stepLogf("warn", "6", "登录流程命中 add_phone/add-phone，但未配置手机号接码提供商", "email", email)
-			return "", ErrPasswordAuthorizationAddPhone
-		}
-		stepLogf("info", "6", "检测到 add_phone/add-phone，开始自动完成手机号验证", "email", email)
-		continueURL, pageType, err = handleAddPhoneVerification(
-			ctx,
-			session,
-			input.PhoneConfig,
-			continueURL,
-			pageType,
-			logf,
-			extendPasswordAuthorizationStepPrefix(input.StepPrefix, "6"),
-		)
-		if err != nil {
-			stepLogf("error", "6", "手机号验证失败: "+err.Error(), "email", email)
-			if errors.Is(err, ErrPasswordAuthorizationAddPhone) {
-				return "", err
-			}
-			return "", fmt.Errorf("phone verification failed: %w", err)
-		}
-		stepLogf("info", "6", "手机号验证成功，"+describeAuthPage(continueURL, pageType), "email", email)
-	}
-
-	stepLogf("info", "7", "开始提取授权码", "email", email)
-	code, err := extractAuthorizationCode(ctx, session, continueURL)
-	if err != nil {
-		stepLogf("error", "7", "提取授权码失败: "+err.Error(), "email", email)
-		return "", err
-	}
-	stepLogf("info", "7", "OpenAI 登录成功，已获取授权码", "email", email)
 	return code, nil
 }
 
@@ -684,10 +632,49 @@ func startAuthorization(ctx context.Context, session *passwordAuthorizationSessi
 	return lastErr
 }
 
-func postAuthorizeContinue(ctx context.Context, session *passwordAuthorizationSession, sentinel *sentinelClient, email string) error {
-	token, err := sentinel.token(ctx, session, sentinelFlowAuthorizeContinue)
+func warmupChatGPTSession(ctx context.Context, session *passwordAuthorizationSession) error {
+	if session == nil {
+		return fmt.Errorf("flow session is not configured")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, passwordAuthorizationChatGPT, nil)
 	if err != nil {
 		return err
+	}
+	req.Header = session.navigateHeaders("")
+	emitPasswordAuthorizationLog(session.logf, "info", "准备访问 ChatGPT 首页以预热注册会话",
+		"method", "GET",
+		"url", passwordAuthorizationChatGPT,
+	)
+	resp, err := session.do(req, true)
+	if err != nil {
+		emitPasswordAuthorizationLog(session.logf, "error", "访问 ChatGPT 首页失败",
+			"method", "GET",
+			"url", passwordAuthorizationChatGPT,
+			"error", err.Error(),
+		)
+		return err
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return fmt.Errorf("chatgpt warmup failed: status=%d body=%s", resp.StatusCode, trimBody(body))
+	}
+	emitPasswordAuthorizationLog(session.logf, "info", "ChatGPT 首页访问完成，已预热注册会话",
+		"method", "GET",
+		"url", passwordAuthorizationChatGPT,
+		"status", resp.StatusCode,
+		"final_url", finalResponseURL(passwordAuthorizationChatGPT, resp),
+	)
+	return nil
+}
+
+func postAuthorizeContinue(ctx context.Context, session *passwordAuthorizationSession, sentinel *sentinelClient, email string) (string, string, error) {
+	token, err := sentinel.token(ctx, session, sentinelFlowAuthorizeContinue)
+	if err != nil {
+		return "", "", err
 	}
 	headers := session.commonHeaders(passwordAuthorizationIssuer + "/log-in")
 	headers.Set("openai-sentinel-token", token)
@@ -706,8 +693,22 @@ func postAuthorizeContinue(ctx context.Context, session *passwordAuthorizationSe
 		"sentinel_token", tokenPresence(token),
 		"payload", sanitizePasswordAuthorizationPayload(body),
 	)
-	_, err = postJSON(ctx, session, passwordAuthorizationIssuer+pathAuthorizeContinue, headers, body, true)
-	return err
+	payload, err := postJSON(ctx, session, passwordAuthorizationIssuer+pathAuthorizeContinue, headers, body, true)
+	if err != nil {
+		return "", "", err
+	}
+	continueURL := payload.ContinueURL
+	pageType := payload.Page.Type
+	if strings.TrimSpace(continueURL) == "" {
+		continueURL = passwordAuthorizationIssuer + "/log-in/password"
+	}
+	emitPasswordAuthorizationLog(session.logf, "info", "接口 /api/accounts/authorize/continue 调用完成",
+		"method", "POST",
+		"api", pathAuthorizeContinue,
+		"continue_url", continueURL,
+		"page_type", pageType,
+	)
+	return continueURL, pageType, nil
 }
 
 func postPasswordVerify(ctx context.Context, session *passwordAuthorizationSession, sentinel *sentinelClient, password string) (string, string, error) {
@@ -738,6 +739,82 @@ func postPasswordVerify(ctx context.Context, session *passwordAuthorizationSessi
 		"continue_url", payload.ContinueURL,
 	)
 	return payload.ContinueURL, payload.Page.Type, nil
+}
+
+func postRegisterUser(ctx context.Context, session *passwordAuthorizationSession, sentinel *sentinelClient, email, password string) (string, string, error) {
+	token, err := sentinel.token(ctx, session, sentinelFlowRegisterUser)
+	if err != nil {
+		return "", "", err
+	}
+	headers := session.commonHeaders(passwordAuthorizationIssuer + "/create-account/password")
+	headers.Set("openai-sentinel-token", token)
+	requestBody := map[string]any{
+		"username": strings.TrimSpace(email),
+		"password": password,
+	}
+	emitPasswordAuthorizationLog(session.logf, "info", "准备提交账号注册请求",
+		"method", "POST",
+		"api", pathRegisterUser,
+		"referer", passwordAuthorizationIssuer+"/create-account/password",
+		"sentinel_token", tokenPresence(token),
+		"payload", sanitizePasswordAuthorizationPayload(requestBody),
+	)
+	payload, err := postJSON(ctx, session, passwordAuthorizationIssuer+pathRegisterUser, headers, requestBody, true)
+	if err != nil {
+		return "", "", err
+	}
+	continueURL := payload.ContinueURL
+	pageType := payload.Page.Type
+	if strings.TrimSpace(continueURL) == "" {
+		continueURL = passwordAuthorizationIssuer + "/email-verification"
+	}
+	if strings.TrimSpace(pageType) == "" {
+		pageType = passwordAuthorizationPageTypeEmailOTPVerification
+	}
+	emitPasswordAuthorizationLog(session.logf, "info", "接口 /api/accounts/user/register 调用完成",
+		"method", "POST",
+		"api", pathRegisterUser,
+		"continue_url", continueURL,
+		"page_type", pageType,
+	)
+	return continueURL, pageType, nil
+}
+
+func sendRegisterEmailOTP(ctx context.Context, session *passwordAuthorizationSession) (string, string, error) {
+	emitPasswordAuthorizationLog(session.logf, "info", "准备发送注册邮箱验证码",
+		"method", "GET",
+		"api", pathRegisterEmailOTPSend,
+		"referer", passwordAuthorizationIssuer+"/create-account/password",
+	)
+	resp, raw, err := navigate(ctx, session, passwordAuthorizationIssuer+pathRegisterEmailOTPSend, passwordAuthorizationIssuer+"/create-account/password", true)
+	if err != nil {
+		return "", "", err
+	}
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
+	}
+	continueURL := passwordAuthorizationIssuer + "/email-verification"
+	pageType := passwordAuthorizationPageTypeEmailOTPVerification
+	if resp != nil && isRedirectStatus(resp.StatusCode) {
+		location := resolveLocation(passwordAuthorizationIssuer+pathRegisterEmailOTPSend, resp.Header.Get("Location"))
+		if strings.TrimSpace(location) != "" {
+			continueURL = location
+		}
+	}
+	emitPasswordAuthorizationLog(session.logf, "info", "接口 /api/accounts/email-otp/send 调用完成",
+		"method", "GET",
+		"api", pathRegisterEmailOTPSend,
+		"status", func() int {
+			if resp == nil {
+				return 0
+			}
+			return resp.StatusCode
+		}(),
+		"continue_url", continueURL,
+		"page_type", pageType,
+		"response", trimBody(raw),
+	)
+	return continueURL, pageType, nil
 }
 
 func postPasswordlessSendOTP(ctx context.Context, session *passwordAuthorizationSession) (string, string, error) {
@@ -811,6 +888,9 @@ func waitAndValidateEmailOTP(
 	if config == nil {
 		return "", "", ErrPasswordAuthorizationEmailOTP
 	}
+	// This is now a thin composition layer:
+	// 1. waitForEmailOTPCode handles polling / timeout / resend scheduling
+	// 2. postValidateEmailOTP submits the resolved code
 	stepLogf := func(level, step, message string, attrs ...any) {
 		if logf == nil {
 			return
@@ -821,38 +901,121 @@ func waitAndValidateEmailOTP(
 	if currentSince.IsZero() {
 		currentSince = time.Now().UTC()
 	}
-	for attempt := 0; attempt < 2; attempt++ {
-		stepLogf("info", "1", fmt.Sprintf("开始轮询邮箱 OTP，第 %d 轮", attempt+1), "email", targetEmail)
-		code, receivedAt, err := pollFreemailVerificationCode(ctx, config, targetEmail, currentSince, func(level, message string, attrs ...any) {
-			stepLogf(level, "1", message, attrs...)
-		})
-		if err == nil && strings.TrimSpace(code) != "" {
-			stepLogf("info", "2", "已获取邮箱 OTP，开始提交验证码", "email", targetEmail)
-			continueURL, pageType, validateErr := postValidateEmailOTP(ctx, session, sentinel, code)
-			if validateErr != nil {
-				stepLogf("warn", "2", "提交邮箱 OTP 失败: "+validateErr.Error(), "email", targetEmail)
-				return "", "", validateErr
-			}
-			stepLogf("info", "2", "提交邮箱 OTP 成功，"+describeAuthPage(continueURL, pageType), "email", targetEmail)
-			return continueURL, pageType, nil
+	code, _, err := waitForEmailOTPCode(
+		ctx,
+		config,
+		targetEmail,
+		currentSince,
+		logf,
+		stepPrefix,
+		func(ctx context.Context) error {
+			return triggerLoginEmailOTPResend(ctx, session)
+		},
+	)
+	if err != nil {
+		return "", "", err
+	}
+	stepLogf("info", "2", "已获取邮箱 OTP，开始提交验证码", "email", targetEmail)
+	continueURL, pageType, validateErr := postValidateEmailOTP(ctx, session, sentinel, code)
+	if validateErr != nil {
+		stepLogf("warn", "2", "提交邮箱 OTP 失败: "+validateErr.Error(), "email", targetEmail)
+		return "", "", validateErr
+	}
+	stepLogf("info", "2", "提交邮箱 OTP 成功，"+describeAuthPage(continueURL, pageType), "email", targetEmail)
+	return continueURL, pageType, nil
+}
+
+func waitForEmailOTPCode(
+	ctx context.Context,
+	config *FreeMailOTPConfig,
+	targetEmail string,
+	since time.Time,
+	logf func(level, message string, attrs ...any),
+	stepPrefix string,
+	onTimeoutResend func(context.Context) error,
+) (string, time.Time, error) {
+	if config == nil {
+		return "", time.Time{}, ErrPasswordAuthorizationEmailOTP
+	}
+	stepLogf := func(level, step, message string, attrs ...any) {
+		if logf == nil {
+			return
 		}
-		if attempt == 1 {
-			if err != nil {
-				return "", "", err
-			}
-			return "", "", ErrPasswordAuthorizationEmailOTP
-		}
-		stepLogf("warn", "3", "当前轮次未获取到邮箱 OTP，尝试重发验证码", "email", targetEmail)
+		logf(level, formatPasswordAuthorizationStep(stepPrefix, step, message), attrs...)
+	}
+	currentSince := since
+	if currentSince.IsZero() {
 		currentSince = time.Now().UTC()
-		if triggerErr := triggerLoginEmailOTPResend(ctx, session); triggerErr != nil {
-			return "", "", triggerErr
-		}
-		stepLogf("info", "3", "邮箱 OTP 重发请求已提交", "email", targetEmail)
-		if !receivedAt.IsZero() && receivedAt.After(currentSince) {
-			currentSince = receivedAt
+	}
+	interval := 3 * time.Second
+	if config != nil && config.Interval > 0 {
+		interval = config.Interval
+	} else if config != nil && config.PollIntervalMillis > 0 {
+		interval = time.Duration(config.PollIntervalMillis) * time.Millisecond
+	}
+	if interval <= 0 {
+		interval = 3 * time.Second
+	}
+
+	maxAttempts := 5
+	if config != nil && config.MaxAttempts > 0 {
+		maxAttempts = config.MaxAttempts
+	}
+
+	resendAfter := 15 * time.Second
+	if config != nil && config.ResendAfter > 0 {
+		resendAfter = config.ResendAfter
+	} else if config != nil && config.ResendAfterSeconds > 0 {
+		resendAfter = time.Duration(config.ResendAfterSeconds) * time.Second
+	}
+	maxResendRounds := 3
+	for round := 1; round <= maxResendRounds; round++ {
+		startedAt := time.Now()
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			stepLogf("info", "1", fmt.Sprintf("开始轮询邮箱 OTP，第 %d 次", attempt), "email", targetEmail)
+			code, receivedAt, err := pollFreemailVerificationCode(ctx, config, targetEmail, currentSince, func(level, message string, attrs ...any) {
+				stepLogf(level, "1", message, attrs...)
+			})
+			if err == nil && strings.TrimSpace(code) != "" {
+				stepLogf("info", "1", "已轮询获取到邮箱 OTP", "email", targetEmail)
+				return code, receivedAt, nil
+			}
+			if err != nil && errors.Is(err, ctx.Err()) {
+				return "", time.Time{}, err
+			}
+			if attempt < maxAttempts && time.Since(startedAt) < resendAfter {
+				if err != nil {
+					stepLogf("warn", "1", "当前轮次未获取到邮箱 OTP，继续轮询: "+err.Error(), "email", targetEmail)
+				} else {
+					stepLogf("info", "1", "当前轮次未获取到邮箱 OTP，继续轮询", "email", targetEmail)
+				}
+				timer := time.NewTimer(interval)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return "", time.Time{}, ctx.Err()
+				case <-timer.C:
+				}
+				continue
+			}
+			if time.Since(startedAt) >= resendAfter {
+				stepLogf("warn", "2", "轮询邮箱 OTP 超时，尝试重发验证码", "email", targetEmail)
+				currentSince = time.Now().UTC()
+				if onTimeoutResend != nil {
+					if resendErr := onTimeoutResend(ctx); resendErr != nil {
+						return "", time.Time{}, resendErr
+					}
+					stepLogf("info", "2", "邮箱 OTP 重发请求已提交", "email", targetEmail)
+				}
+				if !receivedAt.IsZero() && receivedAt.After(currentSince) {
+					currentSince = receivedAt
+				}
+				break
+			}
+			return "", time.Time{}, ErrPasswordAuthorizationEmailOTP
 		}
 	}
-	return "", "", ErrPasswordAuthorizationEmailOTP
+	return "", time.Time{}, ErrPasswordAuthorizationEmailOTP
 }
 
 func formatPasswordAuthorizationStep(stepPrefix, step, message string) string {
@@ -929,28 +1092,39 @@ func summarizeURLForLog(raw string) string {
 	return summary
 }
 
-func triggerLoginEmailOTPResend(ctx context.Context, session *passwordAuthorizationSession) error {
+func triggerEmailOTPResend(ctx context.Context, session *passwordAuthorizationSession) error {
 	emitPasswordAuthorizationLog(session.logf, "info", "准备请求邮箱 OTP 重发",
-		"method", "GET",
+		"method", "POST",
 		"api", "/api/accounts/email-otp/resend",
 		"referer", passwordAuthorizationIssuer+"/email-verification",
 	)
-	resp, _, err := navigate(ctx, session, passwordAuthorizationIssuer+"/api/accounts/email-otp/resend", passwordAuthorizationIssuer+"/email-verification", true)
+	headers := session.commonHeaders(passwordAuthorizationIssuer + "/email-verification")
+	resp, raw, err := postRawJSON(ctx, session, passwordAuthorizationIssuer+"/api/accounts/email-otp/resend", headers, nil, true)
 	if err != nil {
 		return err
 	}
-	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("email otp resend failed: status=%d body=%s", resp.StatusCode, trimBody(raw))
 	}
 	if resp != nil {
 		emitPasswordAuthorizationLog(session.logf, "info", "接口 /api/accounts/email-otp/resend 调用完成",
-			"method", "GET",
+			"method", "POST",
 			"api", "/api/accounts/email-otp/resend",
 			"status", resp.StatusCode,
 			"final_url", finalResponseURL(passwordAuthorizationIssuer+"/api/accounts/email-otp/resend", resp),
+			"response", trimBody(raw),
 		)
 	}
 	return nil
+}
+
+func triggerLoginEmailOTPResend(ctx context.Context, session *passwordAuthorizationSession) error {
+	return triggerEmailOTPResend(ctx, session)
+}
+
+func triggerRegisterEmailOTPResend(ctx context.Context, session *passwordAuthorizationSession) error {
+	return triggerEmailOTPResend(ctx, session)
 }
 
 func postValidateEmailOTP(ctx context.Context, session *passwordAuthorizationSession, sentinel *sentinelClient, code string) (string, string, error) {
@@ -1556,45 +1730,20 @@ func pollFreemailVerificationCode(
 		return "", time.Time{}, err
 	}
 
-	maxAttempts := 5
-	if config != nil && config.MaxAttempts > 0 {
-		maxAttempts = config.MaxAttempts
-	}
-	interval := 3 * time.Second
-	if config != nil && config.Interval > 0 {
-		interval = config.Interval
-	}
-
 	mailbox := normalizeFreemailAddress(targetEmail)
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		messages, listErr := client.listMessages(ctx, mailbox)
-		if listErr == nil {
-			code, receivedAt := pickFreemailVerificationCode(messages, since)
-			if strings.TrimSpace(code) != "" {
-				logf("info", fmt.Sprintf("FreeMail 命中邮箱 OTP（第 %d/%d 次轮询）", attempt, maxAttempts), "email", mailbox)
-				return code, receivedAt, nil
-			}
-			lastErr = fmt.Errorf("暂未在 FreeMail 中找到匹配验证码（%d/%d）", attempt, maxAttempts)
-			logf("info", lastErr.Error(), "email", mailbox)
-		} else {
-			lastErr = listErr
-			logf("warn", "FreeMail 轮询失败: "+listErr.Error(), "email", mailbox)
+	messages, listErr := client.listMessages(ctx, mailbox)
+	if listErr == nil {
+		code, receivedAt := pickFreemailVerificationCode(messages, since)
+		if strings.TrimSpace(code) != "" {
+			logf("info", "FreeMail 命中邮箱 OTP", "email", mailbox)
+			return code, receivedAt, nil
 		}
-		if attempt < maxAttempts {
-			timer := time.NewTimer(interval)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return "", time.Time{}, ctx.Err()
-			case <-timer.C:
-			}
-		}
+		lastErr := fmt.Errorf("暂未在 FreeMail 中找到匹配验证码")
+		logf("info", lastErr.Error(), "email", mailbox)
+		return "", time.Time{}, lastErr
 	}
-	if lastErr == nil {
-		lastErr = ErrPasswordAuthorizationEmailOTP
-	}
-	return "", time.Time{}, lastErr
+	logf("warn", "FreeMail 轮询失败: "+listErr.Error(), "email", mailbox)
+	return "", time.Time{}, listErr
 }
 
 func newFreemailClient(config *FreeMailOTPConfig, logf func(level, message string, attrs ...any)) (*freemailClient, error) {
@@ -1982,10 +2131,26 @@ func stringValue(value any) string {
 }
 
 func isEmailOTPPage(continueURL, pageType string) bool {
-	if strings.EqualFold(strings.TrimSpace(pageType), "email_otp_verification") {
+	if normalizePasswordAuthorizationPageType(pageType) == passwordAuthorizationPageTypeEmailOTPVerification {
 		return true
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(continueURL)), "email-verification")
+}
+
+func isPhoneOTPPage(continueURL, pageType string) bool {
+	normalizedType := normalizePasswordAuthorizationPageType(pageType)
+	if normalizedType == passwordAuthorizationPageTypePhoneOTPVerification {
+		return true
+	}
+	return containsAddPhoneMarker(continueURL, pageType) ||
+		strings.Contains(strings.ToLower(strings.TrimSpace(continueURL)), "phone-verification")
+}
+
+func isAboutYouPage(continueURL, pageType string) bool {
+	if normalizePasswordAuthorizationPageType(pageType) == passwordAuthorizationPageTypeAboutYou {
+		return true
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(continueURL)), "about-you")
 }
 
 func normalizeURL(baseURL, value string) string {

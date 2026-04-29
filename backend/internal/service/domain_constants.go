@@ -104,6 +104,9 @@ const (
 	SettingKeyOpenAIOAuthFreemailUsername      = "openai_oauth_freemail_username"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录账号
 	SettingKeyOpenAIOAuthFreemailPassword      = "openai_oauth_freemail_password"      // OpenAI OAuth 邮箱 OTP 的 FreeMail 登录密码
 	SettingKeyOpenAIOAuthFreemailDomain        = "openai_oauth_freemail_domain"        // OpenAI OAuth 邮箱 OTP 的 FreeMail 可用域名列表（逗号分隔，第一个为默认）
+	SettingKeyOpenAIOAuthEmailOTPPollIntervalMS   = "openai_oauth_email_otp_poll_interval_ms"     // OpenAI OAuth 邮箱 OTP 的轮询间隔（毫秒）
+	SettingKeyOpenAIOAuthEmailOTPResendAfterSecs  = "openai_oauth_email_otp_resend_after_seconds" // OpenAI OAuth 邮箱 OTP 的重发等待秒数
+	SettingKeyOpenAIOAuthEmailOTPPollAttempts     = "openai_oauth_email_otp_poll_attempts"        // OpenAI OAuth 邮箱 OTP 单轮轮询次数
 	SettingKeyOpenAIOAuthPhoneBaseURL          = "openai_oauth_phone_base_url"         // OpenAI OAuth 手机 OTP 的 HeroSMS 接口地址
 	SettingKeyOpenAIOAuthPhoneAPIKey           = "openai_oauth_phone_api_key"          // OpenAI OAuth 手机 OTP 的 HeroSMS API Key
 	SettingKeyOpenAIOAuthPhoneServiceCode      = "openai_oauth_phone_service_code"     // OpenAI OAuth 手机 OTP 的 HeroSMS service
